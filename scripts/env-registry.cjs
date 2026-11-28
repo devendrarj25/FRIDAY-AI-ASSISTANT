@@ -29,17 +29,20 @@ const versions = JSON.parse(
   fs.readFileSync(path.join(root, "config", "toolchain-versions.json"), "utf8"),
 );
 
-// The registry lives inside the selected FRIDAY folder, like all other data.
-const picked = require("./friday-root.cjs").workspaceRootOrDev();
-const dataRoot = process.env.FRIDAY_DATA_DIR || path.join(picked.root, "data");
+// The registry lives inside the selected FRIDAY folder, like all other data. The folder is looked up when a read or a
+// write needs it, never when this file is loaded, and without recording a checkout as the FRIDAY folder: a script that
+// only reads the toolchain must not write to the registry of the PC.
+const fridayRoot = require("./friday-root.cjs");
+const pickedRoot = () => fridayRoot.workspaceRootOrDev({ record: false }).root;
+const resolveDataRoot = () => process.env.FRIDAY_DATA_DIR || path.join(pickedRoot(), "data");
 // ONE canonical database, the same file the kernel opens (kernel/main.py):
 // <FRIDAY folder>/database/friday.sqlite3. FRIDAY_DB_PATH overrides it only
 // when the runtime was explicitly pointed somewhere else.
-const databaseFile =
-  process.env.FRIDAY_DB_PATH || require("./friday-root.cjs").layout(picked.root).database;
+const resolveDatabaseFile = () =>
+  process.env.FRIDAY_DB_PATH || fridayRoot.layout(pickedRoot()).database;
 
 /** Registry lives with FRIDAY's data so an app update never discards it. */
-const registryFile = path.join(dataRoot, "environment-registry.json");
+const resolveRegistryFile = () => path.join(resolveDataRoot(), "environment-registry.json");
 
 const logDir = path.join(root, "debug", "diagnostics");
 
@@ -212,6 +215,106 @@ function probeVenv() {
     repairable: true,
     health: !exists ? "missing" : version ? "ready" : "broken",
   });
+}
+
+/**
+ * The PC tools setup installs besides Node.js, npm and Python: Git, PowerShell 7, FFmpeg, Tesseract and the Visual C++
+ * runtime. A missing one is a notice (setup carries on, Doctor and the Install Manager finish it), so each row is
+ * optional and never makes the registry "not ready" on its own. The Tesseract language list and the Visual C++ floor
+ * check come from scripts/doctor-probes.cjs, the same code Doctor uses.
+ */
+function probeToolchain() {
+  const probes = (() => {
+    try {
+      return require("./doctor-probes.cjs");
+    } catch {
+      return null;
+    }
+  })();
+  const row = (id, label, version, minimum, extra = {}) =>
+    record(id, {
+      label,
+      kind: "tool",
+      version,
+      minimum: minimum || null,
+      optional: true,
+      repairable: false,
+      health:
+        !extra.path && !version
+          ? "missing"
+          : version && minimum && !meets(version, minimum)
+            ? "outdated"
+            : "ready",
+      ...extra,
+    });
+  const gitVersion = firstVersion(capture("git", ["--version"]));
+  const entries = [
+    row("git", "Git", gitVersion, versions.gitMinimum, {
+      path: locate(win ? "git.exe" : "git"),
+      source: "git-scm.com",
+      capability: ["version-control", "agent-tools"],
+    }),
+  ];
+  if (win) {
+    const pwshVersion = firstVersion(
+      capture("pwsh", ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"]),
+    );
+    entries.push(
+      row("powershell", "PowerShell 7", pwshVersion, versions.powershellMinimum, {
+        path: locate("pwsh.exe"),
+        source: "github.com/PowerShell/PowerShell",
+        capability: ["scripts", "agent-tools"],
+      }),
+    );
+  }
+  const ffmpegOut = capture("ffmpeg", ["-version"]);
+  entries.push(
+    row("ffmpeg", "FFmpeg", firstVersion(ffmpegOut), null, {
+      path: locate(win ? "ffmpeg.exe" : "ffmpeg"),
+      source: "gyan.dev / ffmpeg.org",
+      capability: ["audio", "voice"],
+      health: ffmpegOut ? "ready" : "missing",
+    }),
+  );
+  const tesseractOut = capture("tesseract", ["--list-langs"]);
+  const langs = probes && tesseractOut ? probes.tesseractLanguages(tesseractOut) : null;
+  entries.push(
+    row("tesseract", "Tesseract OCR", firstVersion(capture("tesseract", ["--version"])), null, {
+      path: locate(win ? "tesseract.exe" : "tesseract"),
+      source: "github.com/UB-Mannheim/tesseract",
+      capability: ["screen-reading", "ocr"],
+      health: tesseractOut ? "ready" : "missing",
+      detail:
+        langs && langs.listed
+          ? `languages: ${langs.langs.join(", ")}${langs.hin ? "" : " (Hindi data not added yet)"}`
+          : null,
+    }),
+  );
+  if (win) {
+    const dll = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "vcruntime140.dll");
+    const present = fs.existsSync(dll);
+    const vcVersion = present
+      ? firstVersion(
+          capture("powershell", [
+            "-NoProfile",
+            "-Command",
+            `(Get-Item -LiteralPath '${dll}').VersionInfo.ProductVersion`,
+          ]),
+        )
+      : null;
+    const floor = versions.vcRedistMinimum || null;
+    const verdict = probes && floor ? probes.vcRedistRow(vcVersion, floor) : null;
+    entries.push(
+      row("vc-runtime", "Visual C++ runtime", vcVersion, null, {
+        path: present ? dll : null,
+        minimum: floor,
+        source: "microsoft.com",
+        capability: ["native-wheels", "model-runtimes"],
+        health: !present ? "missing" : verdict && !verdict.ok ? "outdated" : "ready",
+      }),
+    );
+  }
+  return entries;
 }
 
 const KERNEL_IMPORTS = ["fastapi", "uvicorn", "httpx", "pydantic", "yaml"];
@@ -403,7 +506,7 @@ function probeKernel() {
 }
 
 function probeDatabase() {
-  const db = databaseFile;
+  const db = resolveDatabaseFile();
   if (!fs.existsSync(runtime.venvPython)) {
     return record("database", {
       label: "SQLite database",
@@ -562,7 +665,7 @@ function probeModelRuntimes() {
 
 function readRegistry() {
   try {
-    return JSON.parse(fs.readFileSync(registryFile, "utf8"));
+    return JSON.parse(fs.readFileSync(resolveRegistryFile(), "utf8"));
   } catch {
     return { version: 1, updatedAt: null, platform: process.platform, components: [] };
   }
@@ -570,8 +673,9 @@ function readRegistry() {
 
 function writeRegistry(registry) {
   try {
-    fs.mkdirSync(path.dirname(registryFile), { recursive: true });
-    fs.writeFileSync(registryFile, JSON.stringify(registry, null, 2));
+    const file = resolveRegistryFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(registry, null, 2));
   } catch {
     /* read-only data folder — the in-memory registry is still returned */
   }
@@ -595,6 +699,7 @@ function refreshRegistry() {
     probeConfig(),
     probeBrowserBundle(),
     probeInstalledApp(),
+    ...probeToolchain(),
     ...probeModelRuntimes(),
   ].map((component) => ({
     ...component,
@@ -613,8 +718,8 @@ function refreshRegistry() {
     updatedAt: Date.now(),
     platform: process.platform,
     root,
-    dataRoot,
-    registryFile,
+    dataRoot: resolveDataRoot(),
+    registryFile: resolveRegistryFile(),
     ready: blocking.length === 0,
     blocking: blocking.map((c) => c.id),
     components,
@@ -732,8 +837,13 @@ module.exports = {
     probeBrowserBundle,
     probeInstalledApp,
   },
-  registryFile,
-  dataRoot,
+  /** Resolved on each read, so a FRIDAY folder chosen after this file loaded is followed. */
+  get registryFile() {
+    return resolveRegistryFile();
+  },
+  get dataRoot() {
+    return resolveDataRoot();
+  },
   readRegistry,
   refreshRegistry,
   repairComponent,
@@ -765,7 +875,7 @@ if (require.main === module) {
       `[friday] ${mark} ${c.label}${c.version ? ` ${c.version}` : ""}${c.detail ? ` — ${c.detail}` : ""}`,
     );
   }
-  console.log(`[friday] registry: ${registryFile}`);
+  console.log(`[friday] registry: ${resolveRegistryFile()}`);
   if (!registry.ready) {
     console.error(`[friday] not ready: ${registry.blocking.join(", ")}`);
     process.exit(1);

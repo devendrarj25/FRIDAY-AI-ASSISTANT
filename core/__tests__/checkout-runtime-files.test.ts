@@ -62,9 +62,24 @@ describe.skipIf(!hasGit)("a checkout used as the FRIDAY folder stays clean in gi
       "plugins/data/state.json",
       "projects/notes.md",
       "models/moonshine-en/tokenizer.json",
+      "models/friday-core/friday-core-e4b.gguf",
+      "models/supertonic-3/config.json",
+      "models/hindi-ear/tokenizer.json",
+      "models/wake/hey-friday.onnx",
+      "models/hindi-ear.source.json",
+      "models/hindi-ear.prev/config.json",
+      "models/friday-core/friday-core-e4b.gguf.part",
+      "security/credentials/secrets.json",
+      "backups/pending/friday-1.0.0.zip",
     ];
     const hidden = ignored(files);
     expect(files.filter((file) => !hidden.has(file))).toEqual([]);
+  });
+
+  it("hides none of the tracked sources under models, security and backups (models/*/index.ts included)", () => {
+    const sources = [...tracked].filter((file) => /^(models|security|backups)\//.test(file));
+    expect(sources.length).toBeGreaterThan(0);
+    expect(sources.filter((file) => ignored([file]).size > 0)).toEqual([]);
   });
 
   it("still tracks the files the repository owns", () => {

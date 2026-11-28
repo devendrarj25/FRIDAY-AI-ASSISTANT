@@ -51,15 +51,28 @@ const rmrf = (fsApi, target) => {
 
 const GIB = 1024 ** 3;
 
-/** stable-diffusion.cpp names (patterns from the release list, unverified on a live release; digests are read at install). */
+/**
+ * stable-diffusion.cpp names (the release list of 2026-11-28; digests are read at install). Current releases publish one
+ * `-bin-win-cpu-x64.zip`; the older avx builds stay first so an older release keeps its faster zip.
+ */
+const SD_CPU_ONLY = /-bin-win-cpu-x64\.zip$/i;
 const SD_CPU = {
-  avx512: [/-bin-win-avx512-x64\.zip$/i, /-bin-win-avx2-x64\.zip$/i],
-  avx2: [/-bin-win-avx2-x64\.zip$/i],
-  plain: [/-bin-win-avx-x64\.zip$/i, /-bin-win-noavx-x64\.zip$/i],
-  cpu: [/-bin-win-avx2-x64\.zip$/i, /-bin-win-noavx-x64\.zip$/i],
+  avx512: [/-bin-win-avx512-x64\.zip$/i, /-bin-win-avx2-x64\.zip$/i, SD_CPU_ONLY],
+  avx2: [/-bin-win-avx2-x64\.zip$/i, SD_CPU_ONLY],
+  plain: [/-bin-win-avx-x64\.zip$/i, /-bin-win-noavx-x64\.zip$/i, SD_CPU_ONLY],
+  cpu: [/-bin-win-avx2-x64\.zip$/i, /-bin-win-noavx-x64\.zip$/i, SD_CPU_ONLY],
 };
 
+const SD_BACKENDS = new Set(["cuda", "vulkan", "cpu"]);
+
 function sdPlan(entry, assets) {
+  // The chain is shared with llama.cpp: a ROCm, SYCL or OpenVINO entry or an arm64 one has no stable-diffusion.cpp zip,
+  // and the CPU branch below must never install an x64 CPU zip under a GPU or arm64 label.
+  if (!SD_BACKENDS.has(entry.backend) || String(entry.arch || "x64").toLowerCase() !== "x64")
+    return {
+      ok: false,
+      reason: `stable-diffusion.cpp has no ${entry.backend || "unknown"} ${entry.arch || "x64"} build for Windows`,
+    };
   const list = (Array.isArray(assets) ? assets : []).filter((a) => a && a.name && a.url);
   const named = (re) => list.find((a) => /^sd-/i.test(a.name) && re.test(a.name));
   let zips = [];
@@ -774,6 +787,12 @@ function uninstallEngine(root, spec, fsApi = nodeFs) {
 
 /* ------------------------------------------------------------ pinned wheels */
 
+/** A platform-independent NVIDIA wheel (`py3-none-win_amd64`): one file, digest and size from the PyPI JSON of that file. */
+const nvidiaWheel = (dist, version, bytes, sha256) => ({
+  version,
+  assets: [{ name: `${dist.replace(/-/g, "_")}-${version}-py3-none-win_amd64.whl`, bytes, sha256 }],
+});
+
 const PINNED_WHEELS = Object.freeze({
   "nvidia-cublas-cu12": {
     version: "12.9.2.10",
@@ -792,6 +811,109 @@ const PINNED_WHEELS = Object.freeze({
         name: "nvidia_cudnn_cu12-9.28.1.4-py3-none-win_amd64.whl",
         bytes: 696300805,
         sha256: "3467aafa9b260e6adf5fbbfc0e21d180133305b42032aa1160be2d3142bb8b09",
+      },
+    ],
+  },
+  // CUDA 13 libraries for ONNX Runtime 1.32.0 (PyPI JSON, win_amd64; uploaded 2026-11-04 / 2026-11-06). The cu13 wheels
+  // drop the `-cu13` suffix except cuDNN. The DLL names inside are unverified on Windows.
+  "nvidia-cuda-runtime": nvidiaWheel(
+    "nvidia-cuda-runtime",
+    "13.5.37",
+    2780254,
+    "f225d3fa5ea6bfbb58fc4979ef72375cbe661d9107f0d8a4ff22cc151525e4a9",
+  ),
+  "nvidia-cuda-nvrtc": nvidiaWheel(
+    "nvidia-cuda-nvrtc",
+    "13.5.37",
+    49248991,
+    "e8e6c10b251385707ae3abd7b4ee118de6736fd7678d0f0f4eab4d759f679c21",
+  ),
+  "nvidia-nvjitlink": nvidiaWheel(
+    "nvidia-nvjitlink",
+    "13.5.37",
+    41467665,
+    "4465d4e8f2212118220b580c82523c5654f93a62906bd51d29d79bdfc12376c1",
+  ),
+  "nvidia-cufft": nvidiaWheel(
+    "nvidia-cufft",
+    "12.5.0.14",
+    164476208,
+    "78e7585159ecf37d73af1ce43a5dea7fd3360e1af71cde08f070c07966a336bc",
+  ),
+  "nvidia-curand": nvidiaWheel(
+    "nvidia-curand",
+    "10.4.5.25",
+    77330709,
+    "f6a02a70f5b9715235df31a164a4bf3237a45be1600a5f435f5e4a0d8682eb22",
+  ),
+  "nvidia-cublas": nvidiaWheel(
+    "nvidia-cublas",
+    "13.10.0.20",
+    427284863,
+    "c310b749eea855b88fafb906de08d6819b87216c6711640771764fea5dcd8546",
+  ),
+  "nvidia-cudnn-cu13": nvidiaWheel(
+    "nvidia-cudnn-cu13",
+    "9.28.1.4",
+    407065099,
+    "73d874c6bd8a1c75ca040228f77c4e163efe9bab3b65bd85914e2b7334ac68ee",
+  ),
+  // CUDA 12.9 extras for ONNX Runtime 1.26.0 (drivers 576-579), next to nvidia-cublas-cu12 and nvidia-cudnn-cu12 above.
+  "nvidia-cuda-runtime-cu12": nvidiaWheel(
+    "nvidia-cuda-runtime-cu12",
+    "12.9.79",
+    3591604,
+    "8e018af8fa02363876860388bd10ccb89eb9ab8fb0aa749aaf58430a9f7c4891",
+  ),
+  "nvidia-cuda-nvrtc-cu12": nvidiaWheel(
+    "nvidia-cuda-nvrtc-cu12",
+    "12.9.86",
+    76408187,
+    "72972ebdcf504d69462d3bcd67e7b81edd25d0fb85a2c46d3ea3517666636349",
+  ),
+  "nvidia-nvjitlink-cu12": nvidiaWheel(
+    "nvidia-nvjitlink-cu12",
+    "12.9.86",
+    35584936,
+    "cc6fcec260ca843c10e34c936921a1c426b351753587fdd638e8cff7b16bb9db",
+  ),
+  "nvidia-cufft-cu12": nvidiaWheel(
+    "nvidia-cufft-cu12",
+    "11.4.1.4",
+    200067309,
+    "8e5bfaac795e93f80611f807d42844e8e27e340e0cde270dcb6c65386d795b80",
+  ),
+  "nvidia-curand-cu12": nvidiaWheel(
+    "nvidia-curand-cu12",
+    "10.3.10.19",
+    68774847,
+    "e8129e6ac40dc123bd948e33d3e11b4aa617d87a583fa2f21b3210e90c743cde",
+  ),
+  // The CUDA 12 ONNX Runtime GPU build: same distribution name as the CUDA 13 one, so only a pinned, never-live source.
+  "onnxruntime-gpu-cu12": {
+    dist: "onnxruntime-gpu",
+    pinnedOnly: true,
+    version: "1.26.0",
+    assets: [
+      {
+        name: "onnxruntime_gpu-1.26.0-cp311-cp311-win_amd64.whl",
+        bytes: 226539455,
+        sha256: "cc5329aad02d9745cc3ae9cdb185bfa1aad242a7bf89b8c471280002ec40f98a",
+      },
+      {
+        name: "onnxruntime_gpu-1.26.0-cp312-cp312-win_amd64.whl",
+        bytes: 226548963,
+        sha256: "5f49c44689894650990e4c8a857d2edafc276fbd79bba57ceb224bd18d25d491",
+      },
+      {
+        name: "onnxruntime_gpu-1.26.0-cp313-cp313-win_amd64.whl",
+        bytes: 226548083,
+        sha256: "6ab9f9c741d2e239b2e321ab0d389c04329d4ab7f11e3b92dd3aa7db1c59dee4",
+      },
+      {
+        name: "onnxruntime_gpu-1.26.0-cp314-cp314-win_amd64.whl",
+        bytes: 229142768,
+        sha256: "3e592439b0183d303c2374517b5b392599a3d50b2dc9de949b9b15731ac921c9",
       },
     ],
   },
@@ -872,6 +994,39 @@ const PINNED_WHEELS = Object.freeze({
   },
 });
 
+/** Driver floors (nvidia-smi `driver_version`, the major part): CUDA 13 libraries from 580, the CUDA 12.9 set from 576. */
+const CUDA13_DRIVER_FLOOR = 580;
+const CUDA12_DRIVER_FLOOR = 576;
+
+/**
+ * Which GPU stack a driver can run: CUDA 13 libraries with ONNX Runtime 1.32.0 (driver 580+), the CUDA 12.9 set with
+ * ONNX Runtime 1.26.0 (576-579), DirectML below that or when the driver is unknown. `bundles` is the install order.
+ */
+function gpuStackFor(driverVersion) {
+  const major = Number.parseFloat(String(driverVersion ?? ""));
+  if (Number.isFinite(major) && major >= CUDA13_DRIVER_FLOOR)
+    return { tier: "cuda13", bundles: ["cuda13-libs", "ort-gpu"] };
+  if (Number.isFinite(major) && major >= CUDA12_DRIVER_FLOOR)
+    return { tier: "cuda12", bundles: ["cuda-libs", "cuda12-ort-libs", "ort-gpu-cu12"] };
+  return { tier: "directml", bundles: ["ort-directml"] };
+}
+
+/**
+ * The GPU health check, run by the venv Python (`python -c`): preload the CUDA DLLs where the build has
+ * `preload_dlls`, build a real session on a one-node Identity graph (an ONNX model held in memory) and require that
+ * CUDAExecutionProvider is listed first. `get_available_providers()` lists CUDA even when its DLLs are missing, so only
+ * a session shows the truth. Exit 0 = GPU, 3 = ONNX Runtime fell back to the CPU, anything else = it raised.
+ */
+const IDENTITY_ONNX_HEX =
+  "08084202100d3a370a100a017812017922084964656e746974791201675a0f0a0178120a0a08080112040a020801620f0a0179120a0a08080112040a020801";
+const GPU_HEALTH_PROBE = [
+  "import sys, onnxruntime as ort",
+  "getattr(ort, 'preload_dlls', lambda: None)()",
+  `m = bytes.fromhex('${IDENTITY_ONNX_HEX}')`,
+  "s = ort.InferenceSession(m, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])",
+  "sys.exit(0 if s.get_providers()[0] == 'CUDAExecutionProvider' else 3)",
+].join("\n");
+
 /**
  * Bundles of wheels that install together. `pythonSpecific` wheels carry a `cpXY` tag; `conflicts` share a module with
  * the bundle and are removed (after the new wheels downloaded and verified) so two never sit together.
@@ -886,6 +1041,38 @@ const PIP_BUNDLES = Object.freeze({
     conflicts: [],
     withDeps: false,
     verifyImport: "import nvidia.cublas, nvidia.cudnn",
+  },
+  // CUDA 13 libraries for the CUDA 13 ONNX Runtime (ort-gpu). ctranslate2 keeps cuda-libs (CUDA 12). Only the shared
+  // `nvidia` namespace is imported here: the real check is the GPU health session of ort-gpu, and the DLL names are unverified.
+  "cuda13-libs": {
+    id: "CUDA 13 runtime libraries",
+    parts: [
+      { dist: "nvidia-cuda-runtime", pythonSpecific: false },
+      { dist: "nvidia-cuda-nvrtc", pythonSpecific: false },
+      { dist: "nvidia-nvjitlink", pythonSpecific: false },
+      { dist: "nvidia-cufft", pythonSpecific: false },
+      { dist: "nvidia-curand", pythonSpecific: false },
+      { dist: "nvidia-cublas", pythonSpecific: false },
+      { dist: "nvidia-cudnn-cu13", pythonSpecific: false },
+    ],
+    conflicts: [],
+    withDeps: false,
+    verifyImport: "import nvidia",
+  },
+  // The CUDA 12.9 extras the CUDA 12 ONNX Runtime needs next to cuda-libs (cuBLAS 12, cuDNN 9).
+  "cuda12-ort-libs": {
+    id: "CUDA 12 runtime libraries for ONNX Runtime",
+    parts: [
+      { dist: "nvidia-cuda-runtime-cu12", pythonSpecific: false },
+      { dist: "nvidia-cuda-nvrtc-cu12", pythonSpecific: false },
+      { dist: "nvidia-nvjitlink-cu12", pythonSpecific: false },
+      { dist: "nvidia-cufft-cu12", pythonSpecific: false },
+      { dist: "nvidia-curand-cu12", pythonSpecific: false },
+    ],
+    conflicts: [],
+    requires: ["cuda-libs"],
+    withDeps: false,
+    verifyImport: "import nvidia",
   },
   "ort-cpu": {
     id: "ONNX Runtime",
@@ -905,14 +1092,25 @@ const PIP_BUNDLES = Object.freeze({
     id: "ONNX Runtime (GPU)",
     parts: [{ dist: "onnxruntime-gpu", pythonSpecific: true }],
     conflicts: ["onnxruntime", "onnxruntime-directml"],
+    requires: ["cuda13-libs"],
     withDeps: true,
-    verifyImport: "import onnxruntime",
+    verifyImport: GPU_HEALTH_PROBE,
+  },
+  // ONNX Runtime 1.26.0 (CUDA 12) for drivers 576-579: the same module as ort-gpu, pinned only.
+  "ort-gpu-cu12": {
+    id: "ONNX Runtime (GPU, CUDA 12)",
+    parts: [{ dist: "onnxruntime-gpu", pin: "onnxruntime-gpu-cu12", pythonSpecific: true }],
+    conflicts: ["onnxruntime", "onnxruntime-directml"],
+    requires: ["cuda-libs", "cuda12-ort-libs"],
+    withDeps: true,
+    verifyImport: GPU_HEALTH_PROBE,
   },
 });
 
 /** The sources of one wheel for `vendor.resolveLatest`: PyPI JSON, PyPI Simple, then the pinned wheels above. */
 function wheelSources(dist) {
   const pin = PINNED_WHEELS[dist];
+  if (pin?.pinnedOnly) return [{ kind: "pinned", version: pin.version, assets: pin.assets }];
   return [
     { kind: "pypi-json", pkg: dist, platform: "win_amd64" },
     { kind: "pypi-simple", pkg: dist, platform: "win_amd64" },
@@ -928,7 +1126,8 @@ function planWheels(bundle, resolved, { pyTag = null } = {}) {
   const lines = [];
   const wheels = [];
   for (const part of bundle.parts) {
-    const answer = resolved?.[part.dist];
+    const key = part.pin || part.dist;
+    const answer = resolved?.[key];
     if (!answer?.ok || !answer.version)
       return { ok: false, error: `no version of ${part.dist} could be read` };
     const hits = (answer.assets || []).filter(
@@ -947,7 +1146,7 @@ function planWheels(bundle, resolved, { pyTag = null } = {}) {
     }
     if (!/^[a-f0-9]{64}$/.test(wheel.sha256 || ""))
       return { ok: false, error: `no SHA-256 was published for ${wheel.name}` };
-    const pin = PINNED_WHEELS[part.dist];
+    const pin = PINNED_WHEELS[key];
     const pinHit = pin?.assets.find((a) => a.name === wheel.name);
     const clash = pinHit
       ? vendor.agreeOnDigest(
@@ -963,9 +1162,93 @@ function planWheels(bundle, resolved, { pyTag = null } = {}) {
       name: wheel.name,
       bytes: wheel.bytes || 0,
       sha256: wheel.sha256,
+      ...(wheel.url ? { url: wheel.url } : {}),
     });
   }
   return { ok: true, lines, wheels };
+}
+
+const sharedMirrors = require("./pypi-mirrors.cjs");
+
+/** The PyPI mirrors of config/download-hosts.json (`pypiMirrors`), in order: [{ id, packages, simple }]. */
+function pypiMirrors() {
+  let list = [];
+  try {
+    list = require("./resource-paths.cjs").readConfigJson("download-hosts.json", {}).value
+      ?.pypiMirrors;
+  } catch {
+    list = [];
+  }
+  return sharedMirrors.validMirrors(list);
+}
+
+/** The same wheel on each mirror (shared with scripts/wheelhouse.cjs through pypi-mirrors.cjs). */
+function mirrorUrls(url, mirrors = pypiMirrors()) {
+  return sharedMirrors.mirrorUrls(url, mirrors);
+}
+
+/**
+ * The hashed road for wheels `pip download` could not fetch: each wheel is tried on files.pythonhosted.org, then on every
+ * PyPI mirror in order, and a file is kept only when its size and SHA-256 are the pinned ones (a mismatch is deleted and
+ * the next road is tried). A wheel with no address is not fetched. `{ ok, error }`; nothing is installed here.
+ */
+async function fetchWheelsFromMirrors(plan, wheelDir, deps, fsApi, run, say) {
+  const download = deps.download || defaultWheelDownload;
+  const problems = [];
+  for (const wheel of plan.wheels) {
+    const file = nodePath.join(wheelDir, wheel.name);
+    const good = () => {
+      try {
+        const bytes = fsApi.readFileSync(file);
+        return (
+          (!Number(wheel.bytes) || bytes.length === Number(wheel.bytes)) &&
+          nodeCrypto.createHash("sha256").update(bytes).digest("hex") === wheel.sha256
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (good()) continue;
+    const urls = wheel.url ? [wheel.url, ...mirrorUrls(wheel.url)] : [];
+    if (!urls.length) {
+      problems.push(`${wheel.name}: no address to fetch it from`);
+      continue;
+    }
+    let got = false;
+    const failed = [];
+    for (const url of urls) {
+      const host = new URL(url).hostname;
+      try {
+        say(`${wheel.name}: trying ${host}`);
+        await run("download", () =>
+          download(url, file, {
+            sha256: wheel.sha256,
+            source: host,
+            bytes: Number(wheel.bytes) || 0,
+          }),
+        );
+        if (good()) {
+          got = true;
+          break;
+        }
+        failed.push(`${host}: failed the SHA-256 or size check`);
+      } catch (error) {
+        failed.push(`${host}: ${String(error?.message || error).slice(0, 80)}`);
+      }
+      rmrf(fsApi, file);
+    }
+    if (!got) problems.push(`${wheel.name}: ${failed.join("; ")}`);
+  }
+  return problems.length ? { ok: false, error: problems.join(" | ") } : { ok: true };
+}
+
+/** The production downloader of a wheel: the hosts allowlist and the SHA-256 check of model-download. */
+function defaultWheelDownload(url, dest, o) {
+  return require("./model-download.cjs").downloadUrl(url, dest, {
+    sha256: o?.sha256,
+    ...(o?.bytes ? { needBytes: o.bytes } : {}),
+    label: `Downloading ${nodePath.basename(dest)}`,
+  });
 }
 
 /**
@@ -1021,11 +1304,18 @@ async function installPinnedWheels(root, bundle, plan, python, deps = {}) {
     ),
   );
   if (dl.code !== 0) {
-    return {
-      ok: false,
-      error: `pip refused the download: ${tail(dl.output)}; the installed copy is untouched`,
-      rolledBack: false,
-    };
+    // pip could not reach the index or the file host (a blocked line): the same wheels, checked against the same
+    // SHA-256 and size, come from files.pythonhosted.org and then the PyPI mirrors of config/download-hosts.json.
+    const mirrored = await fetchWheelsFromMirrors(plan, wheelDir, deps, fsApi, run, say);
+    if (!mirrored.ok) {
+      return {
+        ok: false,
+        error: `pip refused the download: ${tail(dl.output)}${
+          plan.wheels.some((w) => w.url) ? ` (mirrors: ${mirrored.error})` : ""
+        }; the installed copy is untouched`,
+        rolledBack: false,
+      };
+    }
   }
 
   // The previous variants are copied out of pip BEFORE anything is removed, then hashed here: the rollback installs
@@ -1098,7 +1388,10 @@ async function installPinnedWheels(root, bundle, plan, python, deps = {}) {
         return { ok: false, error: `no wheel of ${name} ${version} was kept for a rollback` };
       }
       const digest = fileSha256(fsApi, nodePath.join(prevDir, file));
-      const pin = PINNED_WHEELS[name]?.assets.find((a) => a.name === file);
+      const pin = Object.entries(PINNED_WHEELS)
+        .filter(([key, p]) => (p.dist || key) === name)
+        .flatMap(([, p]) => p.assets)
+        .find((a) => a.name === file);
       if (pin && pin.sha256 !== digest) {
         return {
           ok: false,
@@ -1243,6 +1536,10 @@ module.exports = {
   ENGINES,
   PINNED_WHEELS,
   PIP_BUNDLES,
+  CUDA13_DRIVER_FLOOR,
+  CUDA12_DRIVER_FLOOR,
+  GPU_HEALTH_PROBE,
+  gpuStackFor,
   llamaPin,
   engineBase,
   engineSources,
@@ -1259,6 +1556,8 @@ module.exports = {
   uninstallEngine,
   wheelSources,
   planWheels,
+  pypiMirrors,
+  mirrorUrls,
   installPinnedWheels,
   sdPlan,
   ffmpegPlan,

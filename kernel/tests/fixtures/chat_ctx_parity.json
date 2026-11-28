@@ -1,0 +1,167 @@
+{
+  "note": "One table for electron/models.cjs ollamaNumCtx and kernel/router.py ollama_num_ctx: the same plan record, the same tier table, the same model, the same window. ramGb is 16 so the RAM ladder never cuts the recorded default (8192).",
+  "tiers": {
+    "ollamaSettings": { "options": { "num_ctx": 8192 } },
+    "rules": { "voiceCtx": 4096 },
+    "voice": { "tags": ["qwen3.5:0.8b"] },
+    "tiers": [
+      { "tag": "qwen3.5:9b", "contextK": 256, "voice": { "tag": "qwen3.5:0.8b" } },
+      { "tag": "tiny:1b", "contextK": 4 }
+    ]
+  },
+  "ramGb": 16,
+  "cases": [
+    {
+      "name": "the planned main model gets the planned window",
+      "record": {
+        "tag": "qwen3.5:9b",
+        "numCtx": 32768,
+        "voice": { "tag": "qwen3.5:0.8b", "ctx": 4096 }
+      },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 32768
+    },
+    {
+      "name": "tag spelling does not matter",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "hf.co/Org/QWEN3.5:9B:latest",
+      "env": "",
+      "expected": 32768
+    },
+    {
+      "name": "the main model never gets above its native context",
+      "record": { "tag": "tiny:1b", "numCtx": 16384, "voice": null },
+      "model": "tiny:1b",
+      "env": "",
+      "expected": 4096
+    },
+    {
+      "name": "the voice twin gets its own small window, not the main one",
+      "record": {
+        "tag": "qwen3.5:9b",
+        "numCtx": 32768,
+        "voice": { "tag": "qwen3.5:0.8b", "ctx": 3072 }
+      },
+      "model": "qwen3.5:0.8b",
+      "env": "",
+      "expected": 3072
+    },
+    {
+      "name": "a twin the plan did not record falls back to the table's voice window",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "qwen3.5:0.8b",
+      "env": "",
+      "expected": 4096
+    },
+    {
+      "name": "a twin window above 4k is cut to 4k",
+      "record": {
+        "tag": "qwen3.5:9b",
+        "numCtx": 32768,
+        "voice": { "tag": "qwen3.5:0.8b", "ctx": 9000 }
+      },
+      "model": "qwen3.5:0.8b",
+      "env": "",
+      "expected": 4096
+    },
+    {
+      "name": "another model is not what the plan measured: the recorded default at most",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "llama3.2:3b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "another model never gets more than the plan",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 4096, "voice": null },
+      "model": "llama3.2:3b",
+      "env": "",
+      "expected": 4096
+    },
+    {
+      "name": "a listed model keeps its native limit when it is not the planned one",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "tiny:1b",
+      "env": "",
+      "expected": 4096
+    },
+    {
+      "name": "no model name: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "a record without a window: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": null, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "a tampered huge window on an unlisted planned model is cut to 131072",
+      "record": { "tag": "unlisted:7b", "numCtx": 1000000000, "voice": null },
+      "model": "unlisted:7b",
+      "env": "",
+      "expected": 131072
+    },
+    {
+      "name": "a huge window never passes 131072 even when the native context is larger",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 1000000000, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 131072
+    },
+    {
+      "name": "a negative window is ignored: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": -32768, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "a zero window is ignored: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 0, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "a boolean window is ignored: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": true, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "a text window is ignored: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": "32768", "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "a fractional window is ignored: the fallback stands",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 4096.5, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "",
+      "expected": 8192
+    },
+    {
+      "name": "the owner's number wins over the plan",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "4096",
+      "expected": 4096
+    },
+    {
+      "name": "the owner can turn it off",
+      "record": { "tag": "qwen3.5:9b", "numCtx": 32768, "voice": null },
+      "model": "qwen3.5:9b",
+      "env": "off",
+      "expected": null
+    }
+  ]
+}

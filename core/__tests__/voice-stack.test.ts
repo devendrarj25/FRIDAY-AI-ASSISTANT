@@ -7,7 +7,12 @@ import { describe, expect, it } from "vitest";
 const require_ = createRequire(import.meta.url);
 const stack = require_(path.resolve(import.meta.dirname, "../../scripts/voice-stack.cjs"));
 
-type Row = { layer: string; name: string; state: "PASS" | "FAIL" | "INFO"; detail: string };
+type Row = {
+  layer: string;
+  name: string;
+  state: "PASS" | "FAIL" | "INFO" | "WARN";
+  detail: string;
+};
 const rows: Row[] = stack.inventory({});
 
 describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", () => {
@@ -61,12 +66,16 @@ describe("the voice stack is complete and connected (scripts/voice-stack.cjs)", 
     });
     const disk = withRoot.filter((r) => r.layer === "disk");
     expect(disk.length).toBeGreaterThan(0);
-    // Nothing is there, and it says so: what setup always fetches fails, what it may skip is information.
-    expect(disk.every((r) => r.state === "FAIL" || r.state === "INFO")).toBe(true);
-    const failing = disk.filter((r) => r.state === "FAIL").map((r) => r.name);
+    // Nothing is there, and it says so: what setup always fetches is a WARN (a notice with the repair command, never a
+    // FAIL), what it may skip is information.
+    expect(disk.every((r) => r.state === "WARN" || r.state === "INFO")).toBe(true);
+    const failing = disk.filter((r) => r.state === "WARN").map((r) => r.name);
     for (const name of ["stt-small", "supertonic-3", "hindi-ear", "hindi-punct", "ollama-setup"]) {
       expect(failing).toContain(name);
     }
+    expect(
+      disk.filter((r) => r.state === "WARN").every((r) => /npm run doctor/.test(r.detail)),
+    ).toBe(true);
     // Optional helpers have a fallback (energy VAD, silence timer), so a missing file is information only.
     for (const name of ["silero-vad", "smart-turn"]) {
       expect(disk.find((r) => r.name === name)?.state).toBe("INFO");
@@ -323,7 +332,7 @@ describe("every download row names all its sources and which one answers now", (
     expect(silero?.detail).toContain("first source huggingface.co is down now");
     expect(silero?.detail).toContain("raw.githubusercontent.com answers");
     const ollama = list.find((r) => r.layer === "disk" && r.name === "ollama-setup");
-    expect(ollama?.state).toBe("FAIL");
+    expect(ollama?.state).toBe("WARN");
     expect(ollama?.detail).toContain("sources: github.com (up)");
   });
 
@@ -474,7 +483,7 @@ describe("one row per language and role, by this PC's plan", () => {
     expect(rowsOf({}).every((r) => r.layer === "language")).toBe(true);
   });
 
-  it("a model the plan carries and the disk lacks is MISSING (FAIL); on disk with its package is PASS", () => {
+  it("a model the plan carries and the disk lacks is MISSING (a WARN notice, not a FAIL); on disk with its package is PASS", () => {
     const view = stack.planView(
       plan(["hindi-ear", "hindi-light-tts", "hinglish-ear", "hindi-fallback-ear"]),
       null,
@@ -486,8 +495,9 @@ describe("one row per language and role, by this PC's plan", () => {
       "hinglish ears (STT)",
       "hindi fallback ear",
     ]) {
-      expect(get(missing, name)?.state, name).toBe("FAIL");
+      expect(get(missing, name)?.state, name).toBe("WARN");
       expect(get(missing, name)?.detail, name).toContain("MISSING: planned for this PC");
+      expect(get(missing, name)?.detail, name).toContain("run npm run doctor");
     }
     const onDisk = new Set(["hindi-ear", "hindi-light-tts", "hinglish-ear", "hindi-fallback-ear"]);
     const fine = rowsOf({ view, onDisk });
@@ -523,16 +533,16 @@ describe("one row per language and role, by this PC's plan", () => {
     );
   });
 
-  it("a missing package is FAIL where the PC must have it and INFO where it need not; unknown stays 'not checked'", () => {
+  it("a missing package is a WARN where the PC must have it and INFO where it need not; unknown stays 'not checked'", () => {
     const view = stack.planView(plan(["hindi-ear"]), null);
     const onDisk = new Set(["hindi-ear"]);
     const strict = rowsOf({ view, onDisk, mods: mods({ onnxruntime: false }) });
-    expect(get(strict, "hindi ears (STT)")?.state).toBe("FAIL");
+    expect(get(strict, "hindi ears (STT)")?.state).toBe("WARN");
     expect(get(strict, "hindi ears (STT)")?.detail).toContain(
       "package onnxruntime NOT installed in the venv",
     );
     const noNumpy = rowsOf({ view, onDisk, mods: mods({ numpy: false }) });
-    expect(get(noNumpy, "hindi ears (STT)")?.state).toBe("FAIL");
+    expect(get(noNumpy, "hindi ears (STT)")?.state).toBe("WARN");
     const relaxed = rowsOf({
       view,
       onDisk,
@@ -562,8 +572,8 @@ describe("one row per language and role, by this PC's plan", () => {
     expect(stack.VOICE_MODULES).toContain("numpy");
   });
 
-  it("Moonshine is planned on every PC: missing is MISSING, switched off or no Python is skipped on this PC", () => {
-    expect(get(rowsOf({}), "english ears (STT)")?.state).toBe("FAIL");
+  it("Moonshine is planned on every PC: missing is a MISSING WARN, switched off or no Python is skipped on this PC", () => {
+    expect(get(rowsOf({}), "english ears (STT)")?.state).toBe("WARN");
     expect(get(rowsOf({}), "english ears (STT)")?.detail).toContain("moonshine-en MISSING");
     const off = get(rowsOf({ env: { FRIDAY_PREFETCH_MOONSHINE: "0" } }), "english ears (STT)");
     expect(off?.state).toBe("INFO");
@@ -578,15 +588,18 @@ describe("one row per language and role, by this PC's plan", () => {
         rowsOf({ moonshine: { ready: true }, mods: mods({ moonshine_voice: false }) }),
         "english ears (STT)",
       )?.state,
-    ).toBe("FAIL");
+    ).toBe("WARN");
   });
 
-  it("noise suppression runs on FRIDAY's own denoiser, pyrnnoise is only an optional fallback", () => {
+  it("noise suppression never says PASS when nothing is installed: INFO 'not installed (optional)'; PASS only with the package", () => {
     const missing = rowsOf({ mods: mods({ pyrnnoise: false }) });
-    expect(get(missing, "noise suppression (all languages)")?.state).toBe("PASS");
-    expect(get(missing, "noise suppression (all languages)")?.detail).toContain(
-      "own runner (optional fallback pyrnnoise not installed)",
+    expect(get(missing, "noise suppression (all languages)")?.state).toBe("INFO");
+    expect(get(missing, "noise suppression (all languages)")?.detail).toBe(
+      "not installed (optional)",
     );
+    const unchecked = rowsOf({ mods: null });
+    expect(get(unchecked, "noise suppression (all languages)")?.state).toBe("INFO");
+    expect(get(unchecked, "noise suppression (all languages)")?.detail).toContain("not checked");
     const present = rowsOf({ mods: mods({ pyrnnoise: true }) });
     expect(get(present, "noise suppression (all languages)")?.state).toBe("PASS");
     expect(get(present, "noise suppression (all languages)")?.detail).toContain(
@@ -640,7 +653,7 @@ describe("inventory with a root reads the plan data, the venv python and the sou
       expect(asked).toHaveLength(1);
       expect(asked[0]).toEqual(stack.VOICE_MODULES);
       const lang = (name: string) => list.find((r) => r.layer === "language" && r.name === name);
-      expect(lang("hindi light TTS")?.state).toBe("FAIL");
+      expect(lang("hindi light TTS")?.state).toBe("WARN");
       expect(lang("hinglish ears (STT)")?.detail).toContain("skipped on this PC: not enough RAM");
       expect(lang("hindi speaking (TTS)")?.detail).toContain("package supertonic NOT installed");
       const disk = list.filter((r) => r.layer === "disk").map((r) => r.name);

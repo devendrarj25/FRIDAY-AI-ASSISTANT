@@ -31,7 +31,7 @@ const crypto = require("node:crypto");
 const nodeFs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
-const bundleLib = require("../electron/build-bundle.cjs");
+const bundleLib = require("./electron-module.cjs").load("build-bundle.cjs");
 
 const POINTER_SCHEMA = 1;
 const POINTER_FILE = "local-build.json";
@@ -302,7 +302,7 @@ const packsRequested = (env = process.env) => String(env.FRIDAY_BUILD_PACKS || "
 function planPacks({ tool = require("./build-friday-models.cjs") } = {}) {
   const whole = tool.readManifest();
   const sources = {
-    helperJobs: require("../electron/voice-weights.cjs").pinnedJobs(),
+    helperJobs: require("./electron-module.cjs").load("voice-weights.cjs").pinnedJobs(),
     core: tool.readCore(),
   };
   return tool.packsOf(whole).map((row) => {

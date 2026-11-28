@@ -221,11 +221,12 @@ describe("the build starts with the PC and ends with a verdict", () => {
     ).toThrow(/toolchain is not complete/);
   });
 
-  it("stops the build when the toolkit or the models are not complete", () => {
+  it("stops the build for a blocker only; the toolkit and the models are notices", () => {
     const source = read("scripts/build-pipeline.cjs");
     expect(source).not.toContain("a failure never stops the build");
-    expect(source).toContain("a tool that cannot be installed stops the build");
-    // The scripts exit 1 on a failure; runNode turns that into a failed phase.
+    expect(source).not.toContain("a tool that cannot be installed stops the build");
+    expect(source).toContain("a tool that cannot be installed is a NOTICE");
+    // The scripts exit 1 on a blocker (and, only with FRIDAY_SETUP_STRICT=1, on a notice); runNode turns that into a failed phase.
     // It leaves through exitCode (scripts/leave.cjs), never process.exit(), with the same strict verdict.
     expect(read("scripts/prefetch-toolkit.cjs")).toContain(
       "leave(lines.length && strict() ? 1 : 0)",
@@ -469,7 +470,9 @@ describe("what a real setup run left unsaid", () => {
     expect(check).toContain('process.argv.includes("--summary")');
     expect(check).toContain("components pass");
     // The summary still shows the whole table when something is wrong.
-    expect(check).toMatch(/summaryOnly =[\s\S]*?missing\.length === 0 && warned\.length === 0/);
+    expect(check).toMatch(
+      /summaryOnly =[\s\S]*?missing\.length === 0 &&\s*noticed\.length === 0 &&\s*warned\.length === 0/,
+    );
   });
 
   it("states honestly that no wake model ships", () => {

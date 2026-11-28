@@ -1,0 +1,6 @@
+{
+  "note": "SHA-256 of AGENTS.md, line endings normalised and the two version numbers the release engine rewrites ignored. Always on: there is no switch. Only the owner asks for a change to AGENTS.md; after it, record the file with: node scripts/workflow-lock.cjs --agents --write.",
+  "files": {
+    "AGENTS.md": "f9555ea7be102da257125ed030b133e8ce3ca0c6e1b57834b5dfa0a674a73736"
+  }
+}

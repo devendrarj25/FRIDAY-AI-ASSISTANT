@@ -81,7 +81,7 @@ describe("every pin has a known licence record", () => {
 describe("the stream ear licence conflict is resolved and recorded", () => {
   const pin = () => pins.PINS[STREAM_EAR]!;
 
-  it("the pinned repository is the NVIDIA Open Model License, as its own tag and card say (2026-11-27)", () => {
+  it("the pinned repository is the NVIDIA Open Model License, as its own tag and card say (2026-11-28)", () => {
     expect(pin().license).toBe("NVIDIA-Open-Model-License");
     expect(pin().licenseRecord!.id).toBe("NVIDIA-Open-Model-License");
     expect(pin().licenseRecord!.url).toBe(
@@ -95,7 +95,7 @@ describe("the stream ear licence conflict is resolved and recorded", () => {
     expect(up.id).toBe("OpenMDW-1.1");
     expect(up.url).toBe("https://openmdw.ai/license/1-1/");
     expect(up.source).toBe("https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b");
-    expect(up.checkedAt).toBe("2026-11-27");
+    expect(up.checkedAt).toBe("2026-11-28");
     expect(Object.keys(pins.LICENCES)).toContain("OpenMDW-1.1");
   });
 

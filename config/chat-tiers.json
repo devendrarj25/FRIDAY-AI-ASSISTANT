@@ -1,33 +1,74 @@
 {
   "schema": 1,
-  "checked": "2026-11-24",
-  "source": "https://ollama.com/library (qwen3.5, qwen3.6, gemma4, gpt-oss, llama3.2 pages read 2026-11-24)",
-  "note": "Data for electron/setup-plan.cjs chatModelFor. Tags, download sizes, context, capabilities and licence were read from ollama.com; the memory a tag needs (download size x 1.2) and every speed statement are FRIDAY estimates and stay unverified until the owner's PC runs them. A tag is never chosen unless its weights plus 20 percent fit the usable memory.",
+  "checked": "2026-11-28",
+  "source": "https://ollama.com/library (qwen3.5, qwen3.6, gemma4, gpt-oss, llama3.2 pages read 2026-11-24; qwen3.5, qwen3.6 and gemma4 tag tables and https://docs.ollama.com/gpu, https://docs.ollama.com/faq read 2026-11-28; Ollama tag sizes re-read from the tags pages 2026-11-28; layer, key-value head and head size figures from the Qwen and Gemma 4 model cards' config.json on huggingface.co read 2026-11-28)",
+  "note": "Data for electron/setup-plan.cjs chatModelFor. Tags, download sizes, context, capabilities and licence were read from ollama.com; the memory a tag needs (download size x 1.2, or the row's own weightsMargin) and every speed statement are FRIDAY estimates and stay unverified until the owner's PC runs them. A tag is never chosen unless its weights plus that margin fit the usable memory. The tier is chosen from the TOTAL memory of the PC (free memory only warns), so an open browser never changes the planned model.",
   "rules": {
     "weightsMargin": 1.2,
     "gpuHeadroomGb": 1,
-    "cpuReserveGb": { "at8": 4.5, "at16": 6 },
+    "cpuReserveGb": {
+      "at4": 2,
+      "at8": 4.5,
+      "at16": 6
+    },
     "cpuFreeHeadroomGb": 1,
     "diskFactor": 1.3,
     "diskReserveGb": 1,
     "upgradeOfferRatio": 0.6,
-    "ollamaMinDriver": "551.61",
-    "ollamaMinComputeCap": 7.5,
+    "ollamaMinDriver": "550",
+    "ollamaMinComputeCap": 5,
     "gpuMinTotalGb": 3.5,
     "integratedCountsAsNoGpu": true,
     "partialOffloadByDefault": false,
-    "splitOnlyForMoe": true
+    "splitOnlyForMoe": true,
+    "cpuReserveNote": "Memory Windows, Electron and speech keep, by the PC's total RAM: 2 GB at 4 GB, 4.5 GB at 8 GB, 6 GB from 16 GB, linear in between; below 4 GB it stays 2 GB, so a PC with 3 GB or less gets no local chat model.",
+    "ollamaMinDriverLegacyCc": "570",
+    "ollamaLegacyCcMax": 6.2,
+    "ollamaGpuRuleSource": "https://docs.ollama.com/gpu read 2026-11-28: NVIDIA compute capability 5.0 and newer with driver 550 and newer; compute capability 5.0 to 6.2 needs driver 570 and newer",
+    "vulkanGpuMinTotalGb": 6,
+    "vulkanHeadroomGb": 1.5,
+    "vulkanNote": "A dedicated AMD or Intel card with at least 6 GB of video memory (not an integrated part, not a unified-memory APU) runs the chat model through Ollama's Vulkan backend (https://docs.ollama.com/gpu read 2026-11-28: 'Additional GPU support on Windows and Linux is provided via Vulkan'). Speed is estimated, not measured.",
+    "cpuCaps": {
+      "noAvx2": {
+        "maxDownloadGb": 2.7,
+        "lowClassMaxDownloadGb": 1.3,
+        "note": "no AVX2 on the processor: llama.cpp uses its plain CPU build, so the chat model is capped at 2b (0.8b on a weak processor)"
+      },
+      "arm64": {
+        "maxDownloadGb": 2.7,
+        "lowClassMaxDownloadGb": 1.3,
+        "nativeMaxDownloadGb": 3.3,
+        "nativeLowClassMaxDownloadGb": 1.3,
+        "note": "x64 emulation, slow: ARM64 Windows runs the x64 build by emulation, so the chat model is capped at 2b (0.8b on a weak processor)",
+        "nativeNote": "native ARM64 llama.cpp build: the chat model is capped at 4b (0.8b on a weak processor) until its speed is measured on this PC"
+      }
+    },
+    "numCtx": {
+      "ladder": [2048, 4096, 8192, 16384, 32768, 65536],
+      "cpuCap": 16384,
+      "gpuCap": 65536,
+      "spareShare": 0.5,
+      "defaultKvKbPerToken": 64,
+      "smallRamCaps": [
+        [6, 2048],
+        [9, 4096]
+      ],
+      "note": "num_ctx is the largest ladder step that fits half the memory left after the weights and after a row's fixed `kvFixedGb` (the sliding-window layers' cache, which does not grow with the window), within the model's native context and the device cap; a PC under 6 GB of RAM gets 2k and under 9 GB 4k, as kernel/router.py does. kvKbPerToken is the f16 key-value cache of one token: full-attention layers x 2 x key-value heads x head size x 2 bytes, from the model cards."
+    },
+    "voiceCtx": 4096
   },
   "ollamaSettings": {
-    "options": { "num_ctx": 8192 },
+    "options": {
+      "num_ctx": 8192
+    },
     "keep_alive": "30m",
     "env": {
-      "OLLAMA_FLASH_ATTENTION": "automatic",
       "OLLAMA_KV_CACHE_TYPE": "f16",
       "OLLAMA_MAX_LOADED_MODELS_SMALL_GPU": "1"
     },
     "smallGpuGb": 8,
-    "note": "Applied by FRIDAY when it starts or calls Ollama, never forced on the owner's own Ollama setup. Ollama's default context is 4096. q8_0 KV cache only pays off at 16k context and more. Flash attention stays automatic because the sources disagree on Turing cards."
+    "note": "Applied by FRIDAY when it starts or calls Ollama, never forced on the owner's own Ollama setup. Ollama's default context is 4096. q8_0 KV cache only pays off at 16k context and more. Flash attention is left to Ollama (unset = automatic): https://docs.ollama.com/faq read 2026-11-28 says OLLAMA_FLASH_ATTENTION accepts 1 (force on) or 0 (off), so the word 'automatic' is never written to that variable.",
+    "flashAttention": "automatic"
   },
   "qualityFamilies": {
     "note": "Ranking heuristic to decide whether a model already installed is at least as good as the tier choice: parameter count (MoE: geometric mean of total and active) times the family factor. Not a benchmark.",
@@ -51,14 +92,15 @@
       "id": "cpu-ram-under-8",
       "device": "cpu",
       "minTotalGb": 0,
-      "label": "no GPU, under 8 GB of RAM",
+      "label": "no GPU, 4 to 8 GB of RAM",
       "tag": "qwen3.5:0.8b",
       "downloadGb": 1.3,
       "contextK": 256,
       "capabilities": ["vision", "tools", "thinking"],
       "licence": "Apache-2.0",
       "alternatives": [],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 12
     },
     {
       "id": "cpu-ram-8",
@@ -84,7 +126,8 @@
           "textOnly": true
         }
       ],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 12
     },
     {
       "id": "cpu-ram-16",
@@ -97,48 +140,148 @@
       "capabilities": ["vision", "tools", "thinking"],
       "licence": "Apache-2.0",
       "alternatives": [
-        { "tag": "qwen3.5:2b", "downloadGb": 2.7, "note": "faster on a weak processor" }
+        {
+          "tag": "qwen3.5:2b",
+          "downloadGb": 2.7,
+          "note": "faster on a weak processor"
+        }
       ],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 32,
+      "voice": {
+        "tag": "qwen3.5:0.8b",
+        "downloadGb": 1.3
+      }
+    },
+    {
+      "licence": "Apache-2.0",
+      "capabilities": ["vision", "tools", "thinking"],
+      "contextK": 256,
+      "alternatives": [
+        {
+          "tag": "qwen3.5:4b",
+          "downloadGb": 3.3,
+          "note": "faster on a weak processor"
+        }
+      ],
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24 and re-read 2026-11-28; memory and speed are estimates; a CPU-only mixture of experts (3B active) is slower than a GPU: speed is estimated, not measured",
+      "id": "cpu-ram-24",
+      "device": "cpu",
+      "minTotalGb": 23,
+      "label": "no GPU, 24 GB of RAM",
+      "tag": "qwen3.5:9b",
+      "downloadGb": 6.6,
+      "kvKbPerToken": 32,
+      "voice": {
+        "tag": "qwen3.5:0.8b",
+        "downloadGb": 1.3
+      }
+    },
+    {
+      "licence": "Apache-2.0",
+      "capabilities": ["vision", "tools", "thinking"],
+      "contextK": 256,
+      "alternatives": [
+        {
+          "tag": "qwen3.5:9b",
+          "downloadGb": 6.6,
+          "note": "denser and faster on a weak processor"
+        }
+      ],
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24 and re-read 2026-11-28; memory and speed are estimates; a CPU-only mixture of experts (3B active) is slower than a GPU: speed is estimated, not measured",
+      "id": "cpu-ram-32",
+      "device": "cpu",
+      "minTotalGb": 31,
+      "label": "no GPU, 32 GB of RAM",
+      "tag": "qwen3.6:35b-a3b",
+      "downloadGb": 23,
+      "weightsMargin": 1.1,
+      "moe": true,
+      "kvKbPerToken": 20,
+      "voice": {
+        "tag": "qwen3.5:0.8b",
+        "downloadGb": 1.3
+      },
+      "speed": "estimated"
+    },
+    {
+      "licence": "Apache-2.0",
+      "capabilities": ["vision", "tools", "thinking"],
+      "contextK": 256,
+      "alternatives": [
+        {
+          "tag": "qwen3.6:35b-a3b-q8_0",
+          "downloadGb": 39,
+          "note": "the 8-bit build: a 39 GB upgrade offer on the Models page, never pulled by setup",
+          "moe": true
+        }
+      ],
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24 and re-read 2026-11-28; memory and speed are estimates; a CPU-only mixture of experts (3B active) is slower than a GPU: speed is estimated, not measured",
+      "id": "cpu-ram-64",
+      "device": "cpu",
+      "minTotalGb": 62,
+      "label": "no GPU, 64 GB of RAM or more",
+      "tag": "qwen3.6:35b-a3b",
+      "downloadGb": 23,
+      "weightsMargin": 1.1,
+      "moe": true,
+      "kvKbPerToken": 20,
+      "voice": {
+        "tag": "qwen3.5:2b",
+        "downloadGb": 2.7
+      },
+      "speed": "estimated"
     },
     {
       "id": "gpu-4",
       "device": "gpu",
       "minTotalGb": 3.5,
-      "label": "NVIDIA GPU with 4 GB of video memory",
-      "tag": "qwen3.5:2b",
-      "downloadGb": 2.7,
+      "label": "graphics card with 4 GB of video memory",
+      "tag": "qwen3.5:2b-q4_K_M",
+      "downloadGb": 1.9,
       "contextK": 256,
       "capabilities": ["vision", "tools", "thinking"],
       "licence": "Apache-2.0",
       "alternatives": [
         {
-          "tag": "qwen3.5:4b",
-          "downloadGb": 3.3,
-          "note": "only with a small partial offload, which FRIDAY does not choose by default",
+          "tag": "qwen3.5:2b",
+          "downloadGb": 2.7,
+          "note": "the 8-bit build; tight on a 4 GB card",
           "needsSplit": true
         }
       ],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 12
     },
     {
       "id": "gpu-6",
       "device": "gpu",
       "minTotalGb": 5.5,
-      "label": "NVIDIA GPU with 6 GB of video memory",
+      "label": "graphics card with 6 GB of video memory",
       "tag": "qwen3.5:4b",
       "downloadGb": 3.3,
       "contextK": 256,
       "capabilities": ["vision", "tools", "thinking"],
       "licence": "Apache-2.0",
-      "alternatives": [{ "tag": "qwen3.5:2b", "downloadGb": 2.7, "note": "when the card is busy" }],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "alternatives": [
+        {
+          "tag": "qwen3.5:2b",
+          "downloadGb": 2.7,
+          "note": "when the card is busy"
+        }
+      ],
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 32,
+      "voice": {
+        "tag": "qwen3.5:0.8b",
+        "downloadGb": 1.3
+      }
     },
     {
       "id": "gpu-8",
       "device": "gpu",
       "minTotalGb": 7.5,
-      "label": "NVIDIA GPU with 8 GB of video memory",
+      "label": "graphics card with 8 GB of video memory",
       "tag": "qwen3.5:4b-q8_0",
       "downloadGb": 5.2,
       "contextK": 256,
@@ -157,39 +300,52 @@
           "contextK": 128
         }
       ],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 32,
+      "voice": {
+        "tag": "qwen3.5:0.8b",
+        "downloadGb": 1.3
+      }
     },
     {
       "id": "gpu-12",
       "device": "gpu",
       "minTotalGb": 11.5,
-      "label": "NVIDIA GPU with 12 GB of video memory",
+      "label": "graphics card with 12 GB of video memory",
       "tag": "qwen3.5:9b",
       "downloadGb": 6.6,
       "contextK": 256,
       "capabilities": ["vision", "tools", "thinking"],
       "licence": "Apache-2.0",
       "alternatives": [
-        { "tag": "gemma4:12b-it-qat", "downloadGb": 7.2, "note": "Gemma 4, quantisation-aware" }
+        {
+          "tag": "gemma4:12b-it-qat",
+          "downloadGb": 7.2,
+          "note": "Gemma 4, quantisation-aware"
+        }
       ],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 32,
+      "voice": {
+        "tag": "qwen3.5:2b",
+        "downloadGb": 2.7
+      }
     },
     {
       "id": "gpu-16",
       "device": "gpu",
       "minTotalGb": 15.5,
-      "label": "NVIDIA GPU with 16 GB of video memory",
+      "label": "graphics card with 16 GB of video memory",
       "tag": "gemma4:12b",
-      "downloadGb": 8,
+      "downloadGb": 7.7,
       "contextK": 256,
       "capabilities": ["vision", "tools", "thinking"],
       "licence": "Apache-2.0",
       "alternatives": [
         {
           "tag": "qwen3.5:9b-q8_0",
-          "downloadGb": 11,
-          "note": "download size not listed on the page; 11 GB is a FRIDAY estimate",
-          "sizeUnverified": true
+          "downloadGb": 10,
+          "note": "the 8-bit build, read from the tags page 2026-11-28"
         },
         {
           "tag": "gpt-oss:20b",
@@ -199,13 +355,20 @@
           "licenceUnverified": true
         }
       ],
-      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates"
+      "unverified": "tag, size, context and capabilities read from ollama.com 2026-11-24; memory and speed are estimates",
+      "kvKbPerToken": 16,
+      "kvFixedGb": 0.4,
+      "kvSource": "google/gemma-4-12b-it config.json read 2026-11-28: 48 layers, 8 full-attention (1 global key-value head, head size 512) and 40 sliding-window (8 key-value heads, head size 256, window 1024). Per token only the 8 global layers grow: 8 x 2 x 1 x 512 x 2 bytes = 16 KB; the 40 sliding layers hold a fixed 40 x 2 x 8 x 256 x 2 bytes x 1024 tokens = 320 MiB, rounded up to 0.4 GB.",
+      "voice": {
+        "tag": "qwen3.5:2b",
+        "downloadGb": 2.7
+      }
     },
     {
       "id": "gpu-24",
       "device": "gpu",
       "minTotalGb": 23.5,
-      "label": "NVIDIA GPU with 24 GB of video memory",
+      "label": "graphics card with 24 GB of video memory",
       "tag": "qwen3.6:27b-q4_K_M",
       "downloadGb": 17,
       "contextK": 256,
@@ -220,13 +383,43 @@
           "moe": true
         }
       ],
-      "unverified": "tag, size, capabilities read from ollama.com 2026-11-24; the qwen3.6 context length was not listed; memory and speed are estimates"
+      "unverified": "tag, size, capabilities read from ollama.com 2026-11-24; the qwen3.6 context length was not listed; memory and speed are estimates",
+      "kvKbPerToken": 64,
+      "voice": {
+        "tag": "qwen3.5:2b",
+        "downloadGb": 2.7
+      }
+    },
+    {
+      "licence": "Apache-2.0",
+      "capabilities": ["vision", "tools", "thinking"],
+      "contextK": 256,
+      "alternatives": [
+        {
+          "tag": "qwen3.6:27b-q4_K_M",
+          "downloadGb": 17,
+          "note": "dense, slower per token, more room for context"
+        }
+      ],
+      "unverified": "tag, size and capabilities read from ollama.com 2026-11-28; memory and speed are estimates",
+      "id": "gpu-32",
+      "device": "gpu",
+      "minTotalGb": 31,
+      "label": "graphics card with 32 GB of video memory",
+      "tag": "qwen3.6:35b-a3b-q4_K_M",
+      "downloadGb": 24,
+      "moe": true,
+      "kvKbPerToken": 20,
+      "voice": {
+        "tag": "qwen3.5:2b",
+        "downloadGb": 2.7
+      }
     },
     {
       "id": "gpu-48",
       "device": "gpu",
       "minTotalGb": 47,
-      "label": "NVIDIA GPU with 48 GB of video memory or more",
+      "label": "graphics card with 48 GB of video memory or more",
       "tag": "qwen3.6:35b-a3b-q8_0",
       "downloadGb": 39,
       "contextK": 256,
@@ -242,7 +435,12 @@
           "sizeUnverified": true
         }
       ],
-      "unverified": "tag, size, capabilities read from ollama.com 2026-11-24; the qwen3.6 context length was not listed; memory and speed are estimates"
+      "unverified": "tag, size, capabilities read from ollama.com 2026-11-24; the qwen3.6 context length was not listed; memory and speed are estimates",
+      "kvKbPerToken": 20,
+      "voice": {
+        "tag": "qwen3.5:2b",
+        "downloadGb": 2.7
+      }
     }
   ],
   "rejected": [
@@ -250,11 +448,21 @@
       "tag": "qwen3",
       "reason": "superseded by qwen3.5; still ranked so an installed copy is kept"
     },
-    { "tag": "phi4-mini", "reason": "superseded" },
-    { "tag": "community Sarvam tags", "reason": "not from the official library" },
+    {
+      "tag": "phi4-mini",
+      "reason": "superseded"
+    },
+    {
+      "tag": "community Sarvam tags",
+      "reason": "not from the official library"
+    },
     {
       "tag": "-mtp-, -mlx, -mxfp8, -nvfp4",
       "reason": "Apple-oriented builds; never chosen on a Windows PC"
     }
-  ]
+  ],
+  "voice": {
+    "tags": ["qwen3.5:0.8b", "qwen3.5:2b"],
+    "note": "The small fast voice twins (rows' `voice`): a quick spoken side line goes to one of these while the main model answers real work. electron/setup-plan.cjs voiceModelTags() returns this list; kernel and model-router read it. 0.8b and 2b are also the main model on a small PC, where there is no twin."
+  }
 }

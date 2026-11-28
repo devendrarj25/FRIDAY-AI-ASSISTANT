@@ -19,6 +19,7 @@ const contract = require("./friday-contract.cjs");
 // PAC config and corporate certificates apply (see net-fetch.cjs).
 const { fetchCompat } = require("./net-fetch.cjs");
 const modelAccess = require("./model-access.cjs");
+const setupPlan = require("./setup-plan.cjs");
 const modelRouter = require("./model-router.cjs");
 const modelCapabilities = require("./model-capabilities.cjs");
 const hfRunner = require("./hf-runner.cjs");
@@ -987,37 +988,83 @@ async function ollamaUnload(model) {
 }
 
 /**
- * The one context window FRIDAY asks Ollama for: the shared plan in config/chat-tiers.json
- * (ollamaSettings.options.num_ctx), smaller on a PC with little memory so the cache cannot starve the weights, or the
- * owner's FRIDAY_OLLAMA_NUM_CTX (a number, or off). The kernel reads the same rules (kernel/router.py `ollama_num_ctx`)
- * for the chat itself; Ollama reloads a model whose window changes, so the warm-up below must ask for the same one.
+ * The one context window FRIDAY asks Ollama for. Order: the owner's FRIDAY_OLLAMA_NUM_CTX (a number, or off) always
+ * wins; then the window the setup plan says this PC carries (`plan.chat.numCtx` of electron/setup-plan.cjs, from the
+ * CURRENT hardware facts, see `refreshChatPlan`); and only when no plan could be built the recorded default
+ * (ollamaSettings.options.num_ctx, 8192) cut down by the RAM ladder below. The kernel reads the same record
+ * (kernel/router.py `ollama_num_ctx`), so the warm-up and the chat ask Ollama for one window and never reload the model.
  */
 const NUM_CTX_DEFAULT = 8192;
 const NUM_CTX_MIN = 2048;
+// A tampered plan record can never ask Ollama for more than this (kernel/router.py `_MAX_NUM_CTX` is the same value).
+const NUM_CTX_MAX = 131072;
+const NUM_CTX_VOICE_MAX = 4096;
+// The fallback ladder, used only when the plan cannot be built.
 const NUM_CTX_BY_RAM_GB = [
   [6, 2048],
   [9, 4096],
   [12, 6144],
 ];
 
+/** "Qwen3.5:2B", "qwen3.5:2b:latest" and "hf.co/org/qwen3.5:2b" are one tag. */
+function ctxTagKey(value) {
+  const t = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return t.endsWith(":latest") ? t.slice(0, -7) : t;
+}
+
+function sameCtxTag(a, b) {
+  const x = ctxTagKey(a);
+  const y = ctxTagKey(b);
+  return Boolean(x) && Boolean(y) && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`));
+}
+
+function readChatTiers(tiers) {
+  if (tiers !== undefined) return tiers;
+  try {
+    return require("./resource-paths.cjs").readConfigJson("chat-tiers.json", null)?.value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The window the plan assigns to `model`, or null when the plan has none for it. The planned chat model gets
+ * `chat.numCtx` (never above its native context). The fast voice twin gets its own small window (2k to 4k), never the
+ * main model's. Any other model was not what the plan measured: it gets the plan's window at most up to the recorded
+ * default (8192), and never above its native context when the table knows it.
+ */
+function plannedNumCtx(chat, model, cfg) {
+  const planned = chat?.numCtx;
+  if (!Number.isInteger(planned) || planned < NUM_CTX_MIN || !ctxTagKey(model)) return null;
+  const native = (tag) => {
+    const row = (Array.isArray(cfg?.tiers) ? cfg.tiers : []).find((t) => sameCtxTag(t?.tag, tag));
+    return Number.isFinite(row?.contextK) && row.contextK > 0 ? row.contextK * 1024 : Infinity;
+  };
+  if (sameCtxTag(chat.tag, model)) return Math.min(planned, native(model), NUM_CTX_MAX);
+  const twins = [chat.voice?.tag, ...setupPlan.voiceModelTags(cfg ? { tiers: cfg } : {})];
+  if (twins.some((tag) => sameCtxTag(tag, model))) {
+    const own = Number.isInteger(chat.voice?.ctx) ? chat.voice.ctx : cfg?.rules?.voiceCtx;
+    const ctx = Number.isInteger(own) ? own : NUM_CTX_VOICE_MAX;
+    return Math.max(NUM_CTX_MIN, Math.min(ctx, NUM_CTX_VOICE_MAX));
+  }
+  return Math.min(planned, NUM_CTX_DEFAULT, native(model), NUM_CTX_MAX);
+}
+
 function ollamaNumCtx({
   ramGb = os.totalmem() / 1024 ** 3,
   env = process.env,
   tiers = undefined,
+  model = undefined,
+  chat = undefined,
 } = {}) {
   const raw = String(env.FRIDAY_OLLAMA_NUM_CTX || "")
     .trim()
     .toLowerCase();
   if (["0", "off", "none", "false"].includes(raw)) return null;
   if (/^\d+$/.test(raw) && Number(raw) >= NUM_CTX_MIN) return Number(raw);
-  let plan = tiers;
-  if (plan === undefined) {
-    try {
-      plan = require("./resource-paths.cjs").readConfigJson("chat-tiers.json", null)?.value;
-    } catch {
-      plan = null;
-    }
-  }
+  const plan = readChatTiers(tiers);
+  const fromPlan = plannedNumCtx(chat === undefined ? chatPlanCache?.chat : chat, model, plan);
+  if (fromPlan !== null) return fromPlan;
   const configured = plan?.ollamaSettings?.options?.num_ctx;
   const window = Number.isInteger(configured) && configured > 0 ? configured : NUM_CTX_DEFAULT;
   if (Number.isFinite(ramGb)) {
@@ -1026,6 +1073,84 @@ function ollamaNumCtx({
     }
   }
   return Math.max(NUM_CTX_MIN, window);
+}
+
+/**
+ * The plan of THIS PC's chat model, from the current hardware facts (electron/setup-plan.cjs, the function the setup
+ * used), kept per process and re-read after CHAT_PLAN_TTL_MS. Free disk is left out (it only decides what to
+ * download); the plan's fingerprint says whether the PC changed. A changed plan is recorded for the kernel in
+ * <FRIDAY_ROOT>/runtime/chat-ctx.json. Resolves null when no plan can be built (the RAM ladder then stands). Never throws.
+ * `options`: `facts`, `detect()` (facts), `tiers`, `now()`, `force`, `root`.
+ */
+const CHAT_PLAN_TTL_MS = 15 * 60 * 1000;
+let chatPlanCache = null;
+let chatPlanJob = null;
+
+async function measureChatFacts(options) {
+  if (typeof options.detect === "function") return options.detect();
+  const hardware = require("./hardware.cjs");
+  const detected = await hardware.detectHardware({ root: paths.root() || null });
+  return hardware.hardwareFacts(detected, { freeRamGb: os.freemem() / 1024 ** 3 });
+}
+
+function writeChatCtxRecord(record, root) {
+  try {
+    if (!root) return false;
+    const file = path.join(root, "runtime", "chat-ctx.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function computeChatPlan(options) {
+  const now = typeof options.now === "function" ? options.now() : Date.now();
+  try {
+    const facts = { ...(options.facts ?? (await measureChatFacts(options))), diskFreeGb: null };
+    const plan = setupPlan.buildSetupPlan(facts, options.tiers ? { tiers: options.tiers } : {});
+    const picked = plan?.chat;
+    const chat =
+      picked?.tag && Number.isInteger(picked.numCtx) && picked.numCtx > 0
+        ? {
+            tag: picked.tag,
+            numCtx: picked.numCtx,
+            contextK: picked.contextK ?? null,
+            voice: picked.voice?.tag
+              ? { tag: picked.voice.tag, ctx: picked.voice.ctx ?? null }
+              : null,
+          }
+        : null;
+    const fingerprint = plan?.fingerprint || setupPlan.planFingerprint(plan);
+    const changed =
+      !chatPlanCache ||
+      chatPlanCache.fingerprint !== fingerprint ||
+      JSON.stringify(chatPlanCache.chat) !== JSON.stringify(chat);
+    chatPlanCache = { chat, fingerprint, at: now };
+    if (changed && chat)
+      writeChatCtxRecord({ schema: 1, fingerprint, ...chat }, options.root ?? paths.root());
+    return chat;
+  } catch {
+    return chatPlanCache?.chat ?? null;
+  }
+}
+
+async function refreshChatPlan(options = {}) {
+  const now = typeof options.now === "function" ? options.now() : Date.now();
+  if (!options.force && chatPlanCache && now - chatPlanCache.at < CHAT_PLAN_TTL_MS)
+    return chatPlanCache.chat;
+  chatPlanJob ??= computeChatPlan(options).finally(() => {
+    chatPlanJob = null;
+  });
+  return chatPlanJob;
+}
+
+function resetChatPlan() {
+  chatPlanCache = null;
+  chatPlanJob = null;
 }
 
 /**
@@ -1059,7 +1184,7 @@ function ollamaKeepAlive({ env = process.env, tiers = undefined } = {}) {
 /** The warm-up request: an empty prompt loads the model; the window is the chat's, so the chat does not reload it. */
 function ollamaWarmBody(model, keepAlive = undefined, options = {}) {
   keepAlive = keepAlive === undefined ? ollamaKeepAlive(options) : keepAlive;
-  const window = ollamaNumCtx(options);
+  const window = ollamaNumCtx({ ...options, model });
   return {
     model,
     prompt: "",
@@ -1075,6 +1200,7 @@ function ollamaWarmBody(model, keepAlive = undefined, options = {}) {
  */
 async function ollamaWarm(model, keepAlive = ollamaKeepAlive()) {
   if (!model) return { ok: false, error: "no model" };
+  await refreshChatPlan();
   const res = await request(`${OLLAMA}/api/generate`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -3441,6 +3567,8 @@ module.exports = {
   ollamaWarmBody,
   ollamaKeepAlive,
   ollamaNumCtx,
+  refreshChatPlan,
+  resetChatPlan,
   ollamaRunning,
   localFolders,
   readKeys,

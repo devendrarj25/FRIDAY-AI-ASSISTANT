@@ -32,6 +32,7 @@ import {
   refreshWaitMs,
   rowActions,
   rowsInScope,
+  setupNoticeViews,
   updateOutcome,
   type AutonomyDial,
   type FitGroup,
@@ -39,6 +40,7 @@ import {
   type InstallerScope,
   type InstallTarget,
   type RowView,
+  type SetupNoticeView,
   type TargetLookups,
 } from "@/lib/friday/installer-fit";
 import { onVisibleSecond } from "@/lib/friday/frame-clock";
@@ -234,6 +236,73 @@ function RowCard({
   );
 }
 
+/**
+ * One item setup could not finish: what it is and why, then the way to finish it. A catalogue row gives its own
+ * Install or Download button (the same handler and confirmation as its row below); a Doctor row gives its repair; with
+ * neither the card says which command repairs it.
+ */
+function NoticeCard({
+  view,
+  props,
+  askConfirm,
+}: {
+  view: SetupNoticeView;
+  props: InstallerFitViewProps;
+  askConfirm: (pending: Pending) => void;
+}) {
+  const { row } = view;
+  const target = row ? installTargetOf(row, props.lookups) : null;
+  const actions = row ? rowActions(row, { target, busy: props.isBusy(row, target) }) : null;
+  const install = actions?.install;
+  return (
+    <article
+      aria-label={view.label}
+      data-setup-notice={view.id}
+      className="min-w-0 space-y-1 rounded-surface border border-warning/40 bg-warning/10 p-3"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="min-w-0 flex-1 text-sm font-medium text-foreground">{view.label}</h3>
+        <StatusPill label="Needs finishing" tone="warning" />
+        {row && install && target ? (
+          <Button
+            size="sm"
+            disabled={install.disabled}
+            title={install.title}
+            onClick={() => {
+              const run = () => props.onInstall(row, target);
+              if (install.confirm)
+                askConfirm({
+                  title: install.confirm.title,
+                  lines: install.confirm.lines,
+                  confirmLabel: install.label,
+                  run,
+                });
+              else run();
+            }}
+          >
+            <Download className="size-3.5" /> {install.label}
+          </Button>
+        ) : null}
+        {view.repair ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => props.onRepair(view.repair!.id, view.repair!.action)}
+          >
+            {view.repair.label}
+          </Button>
+        ) : null}
+      </div>
+      <p className="break-words text-xs text-muted-foreground">{view.reason}</p>
+      {!install && !view.repair ? (
+        <p className="break-words text-meta text-muted-foreground">
+          Finish it from a terminal with <span className="font-mono">{view.command}</span>.
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
 function Group({
   group,
   open,
@@ -305,6 +374,7 @@ export function InstallerFitView(props: InstallerFitViewProps) {
     open[group.state] ??
     (!group.collapsedByDefault || Boolean(props.initiallyOpen?.includes(group.state)));
   const notices = catalog ? catalogNotices(catalog) : [];
+  const finishing = catalog ? setupNoticeViews(catalog, scope) : [];
   const doctor = scope === "installManager" && catalog ? catalog.doctor.map(doctorView) : [];
 
   return (
@@ -359,6 +429,18 @@ export function InstallerFitView(props: InstallerFitViewProps) {
                   <RefreshCw className="size-3" /> Retry
                 </Button>
               </div>
+            ) : null}
+            {finishing.length > 0 ? (
+              <section data-setup-notices aria-live="polite" className="space-y-2">
+                <p className="label-xs text-primary">Needs finishing</p>
+                <p className="text-meta text-muted-foreground">
+                  Setup could not finish these. They do not stop FRIDAY; finish them here when you
+                  are ready.
+                </p>
+                {finishing.map((view) => (
+                  <NoticeCard key={view.id} view={view} props={props} askConfirm={setPending} />
+                ))}
+              </section>
             ) : null}
             {phase === "empty" ? (
               <EmptyState

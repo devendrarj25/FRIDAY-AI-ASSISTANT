@@ -1,20 +1,21 @@
 {
-  "note": "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names under 'The Windows CMD chain is finished and locked'. Changed only on the owner's request or a real log from his PC; a new tool, package or model is added through its catalogue, not here (docs/FRIDAY_BUILD_AND_RELEASE.md). Refresh with: node scripts/workflow-lock.cjs --cmd-chain --write",
+  "note": "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names in its Windows CMD chain section. Dormant by owner policy: enforced is false, so nothing is checked. To re-lock, run: node scripts/workflow-lock.cjs --cmd-chain --write, then set enforced to true.",
+  "enforced": false,
   "files": {
-    "scripts/build-pipeline.cjs": "7fd8ba4dfc907e9e643ca01c356ea3fd81dfbbe33c5677de008c904af5aca981",
+    "scripts/build-pipeline.cjs": "6962223c601ea0d502e9a9126e0fe0f7cddfd090154df65ace66ba55a2fc7b13",
     "scripts/build-windows.cmd": "d7aae9b5382d9fd42fae98185f5ecdd35cfbd0948774fa2bf6e7bd9abe60e558",
-    "scripts/check-environment.cjs": "f5020a9906b13c6d7f06d0d6139b1f04c063ded87149f5ac9cb6cb56f3824264",
+    "scripts/check-environment.cjs": "3d8962fa008dd9622b212cfae7430f4c1b0ba9b4400b4f4b3036c3c14317865a",
     "scripts/console-bar.cjs": "d152fe9f73f13e9170430b00d944cc58347eb962490725175f06ce5d8e9cf041",
-    "scripts/doctor.cjs": "d19529a3f754e5d3795111226a4fc122b8e886cfedb257c36c91bf1d25c1eb2d",
+    "scripts/doctor.cjs": "b9c0002ab3ac3f53b2d10ff7a1a11a4bc3fe9b1743d258d37606026009600e1c",
     "scripts/download-board.cjs": "177807ce384933186b1a2203cb9845c5b30dd0358cd098fef485e63f05b92610",
     "scripts/electron-pack.cjs": "d4a9bb6c1ad95fde6ebfa69ada2cb1a1202278e7ad9e9a24da6894be15dda617",
-    "scripts/ensure-electron.cjs": "f9953965ab65b09ee8d4e99c2a06f60e177570cfc099e0d19489026daa8c3d09",
-    "scripts/live-console.cjs": "ea4065aec47f77b399020480556747f10e33a4b4466f11b36cc50303b5344f7f",
-    "scripts/prefetch-models.cjs": "ecc7ca6492771aadec3d7d2aafcd73bcddca3625397bd4d21fd53cc5465af173",
-    "scripts/prefetch-toolkit.cjs": "db87dbf3003b51524388c68c320f54be18f6e92166f5c50299e97fd680f9e11c",
-    "scripts/setup-python.cjs": "a460ab5e8b02a6b6e5c0b41a6fbf85909124b1aecbd3309250be35345baf73a7",
-    "scripts/setup-windows.ps1": "a87c4faf5e9fb01faad711feb2a6dbb4e5003ef8901f79db913249b4c4438842",
-    "scripts/stage-toolchain.cjs": "a077a540260432228cffec5b4e5901cfae40bb43b7d7eba9e2667ad18cb52f9c",
+    "scripts/ensure-electron.cjs": "e416e8d5f68fdd095690e08469d51f2a32b69b43af7e3e1d9ac4ec5c9bd0731a",
+    "scripts/live-console.cjs": "a07da21be8d932150f7510ae4ce1bc8744f19e6cea812a1202d853cec6b41906",
+    "scripts/prefetch-models.cjs": "9ca3ab1af9ffcf0ebf8e750ba2ea297d1b99a70b0b717b02e2c64c657d99aeb4",
+    "scripts/prefetch-toolkit.cjs": "d72f96af4dcaf083cf33dd4c5042eee2d35b468a57fef942eaa55315ccb23675",
+    "scripts/setup-python.cjs": "cd65febc9785bf23a03570b3386ce47e6ce8fab5d82f3747135f359b95f33f92",
+    "scripts/setup-windows.ps1": "06df3fd6839cf64ff044800a3b1b03d0db21ceb032d8eb89af01c177f1722d3e",
+    "scripts/stage-toolchain.cjs": "cdaf872630445576ef921d6cdb331306c5247cd99d7deab2d6f776cbc1957b82",
     "scripts/verify-build.cjs": "e9d5240c2dbec37fd6d633ca624e12b2db37ce48a45c72ae79336e56293f468b"
   }
 }

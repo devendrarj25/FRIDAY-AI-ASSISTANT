@@ -32,6 +32,7 @@ try {
 }
 
 let dispatcher = null;
+let dispatcherSignature = "";
 let egressPolicy = null;
 
 function setEgressPolicy(fn) {
@@ -68,10 +69,33 @@ function egressDecision(url) {
   return { allow: true };
 }
 
+const PROXY_ENV = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"];
+
+/** The proxy variables as a string, so a changed environment builds a new dispatcher. */
+function proxySignature(env = process.env) {
+  return PROXY_ENV.map((name) => String(env[name] || "").trim()).join("|");
+}
+
+/** NO_PROXY as set, plus the loopback: the local engines never go through a proxy. */
+function noProxyList(env = process.env) {
+  const own = String(env.NO_PROXY || env.no_proxy || "").trim();
+  return [own, "localhost", "127.0.0.1", "[::1]"].filter(Boolean).join(",");
+}
+
+/**
+ * Node's own stack follows no system proxy. When a proxy variable is set (setup exports one from the Windows
+ * Internet Options) the dispatcher is undici's EnvHttpProxyAgent, which also honours NO_PROXY; otherwise the plain
+ * Agent it always was.
+ */
 function nodeDispatcher() {
-  if (!dispatcher) {
-    const { Agent } = require("undici");
-    dispatcher = new Agent({ keepAliveTimeout: 30_000, connections: 8 });
+  const signature = proxySignature();
+  if (!dispatcher || dispatcherSignature !== signature) {
+    const { Agent, EnvHttpProxyAgent } = require("undici");
+    const proxied = signature.replace(/\|/g, "") !== "" && typeof EnvHttpProxyAgent === "function";
+    dispatcher = proxied
+      ? new EnvHttpProxyAgent({ keepAliveTimeout: 30_000, noProxy: noProxyList() })
+      : new Agent({ keepAliveTimeout: 30_000, connections: 8 });
+    dispatcherSignature = signature;
   }
   return dispatcher;
 }
@@ -96,7 +120,8 @@ async function fetchCompat(url, init = {}) {
     throw error;
   }
   let chromiumError = null;
-  if (chromiumReady()) {
+  // Chromium cancels a manual-redirect request on any 3xx, so a caller that reads redirects itself goes straight to Node.
+  if (chromiumReady() && init?.redirect !== "manual") {
     try {
       return await electron.net.fetch(String(url), init);
     } catch (error) {

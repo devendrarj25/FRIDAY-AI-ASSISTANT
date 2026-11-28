@@ -99,16 +99,40 @@ const STREAM_EAR_ID = "stream-ear-nemotron";
 const STREAM_EAR_FALLBACK = "the turn-by-turn ears (the speech model and the Hindi ear)";
 
 /**
+ * The language and sound models a fresh setup plans besides the essentials and the Hindi ear (`budgetFor` decides which
+ * ones this PC gets, `voiceInstallPlan` the disk): each one is optional, so a failed fetch is a note that names what
+ * stays in use, and the Doctor shows an absent one as missing but not required. Script policy stays as it is:
+ *   · hinglish-ear writes Roman letters and is used only for the explicit Hindi-in-Roman mode (`hi-Latn`) today, never
+ *     for Devanagari Hindi or English; it is small (78 MB) and goes on every profile, the lite one too;
+ *   · hindi-fallback-ear is the Hindi Whisper copy kernel/whisper_ears.py falls back to when the Hindi ear is absent;
+ *   · hindi-light-tts is the light Hindi voice (a second speaker, never the default);
+ *   · denoise-gtcrn and denoise-dpdfnet are small streaming denoisers; they download and verify, and they are NOT wired
+ *     to the live stream yet (kernel/denoise_onnx.py is an A/B tool only), so planning them claims no noise cleanup.
+ */
+const OPTIONAL_PLAN_FALLBACKS = {
+  "hinglish-ear": "the Hindi ear and the speech model of today (Roman Hinglish is read by them)",
+  "hindi-fallback-ear": "the Hindi ear and the speech model of today",
+  "hindi-light-tts": "FRIDAY Voice (Supertonic) in Hindi",
+  "denoise-gtcrn":
+    "the noise handling that is built in (this denoiser is not wired to the live stream)",
+  "denoise-dpdfnet":
+    "the noise handling that is built in (this denoiser is not wired to the live stream)",
+};
+
+/**
  * Catalog ids a setup plan carries that stay optional: a failed fetch is a NOTE that names the fallback, never a FAIL,
- * and the Doctor shows the absent model as missing but not required. Today only the streaming ear (off by default).
+ * and the Doctor shows the absent model as missing but not required: the streaming ear (off by default) and the models of OPTIONAL_PLAN_FALLBACKS.
  */
 function isPlanOptional(catalogId) {
-  return catalogId === STREAM_EAR_ID;
+  return catalogId === STREAM_EAR_ID || Object.hasOwn(OPTIONAL_PLAN_FALLBACKS, String(catalogId));
 }
 
 /** The fallback named for an optional plan model, or "". */
 function planFallback(catalogId) {
-  return isPlanOptional(catalogId) ? STREAM_EAR_FALLBACK : "";
+  if (catalogId === STREAM_EAR_ID) return STREAM_EAR_FALLBACK;
+  return Object.hasOwn(OPTIONAL_PLAN_FALLBACKS, String(catalogId))
+    ? OPTIONAL_PLAN_FALLBACKS[catalogId]
+    : "";
 }
 
 /**
@@ -305,6 +329,14 @@ const PINNED = [
         sha256: SMART_TURN_SHA256,
         bytes: SMART_TURN_BYTES,
         label: "Hugging Face (pipecat-ai, pinned commit)",
+      },
+      {
+        // The same file on ModelScope (hashed 2026-11-28, equal to the pin); `Revision=master` moves, the SHA-256 decides.
+        kind: "url",
+        url: "https://modelscope.cn/api/v1/models/pipecat-ai/smart-turn-v3/repo?Revision=master&FilePath=smart-turn-v3.2-cpu.onnx",
+        sha256: SMART_TURN_SHA256,
+        bytes: SMART_TURN_BYTES,
+        label: "ModelScope (same SHA-256)",
       },
     ],
   },
@@ -702,6 +734,25 @@ function withFridayRelease(sources, deps = {}) {
   return out;
 }
 
+/**
+ * `sources` with, last, the ModelScope copy (`modelscopeSource`) of every pinned Hugging Face repository it holds, once
+ * per repository and never when the list already carries that url-set. The copy is checked against the same pinned
+ * SHA-256 and size, so it is only another road to the same bytes. Any other source and any other repository is
+ * returned as it was. It is separate from `withFridayRelease` on purpose: that chain ends with the official source.
+ */
+function withModelscopeRoad(sources) {
+  const list = Array.isArray(sources) ? sources : [];
+  const mirrors = [];
+  for (const source of list) {
+    if (source?.kind !== "hf-repo" || !source.repo) continue;
+    if (list.some((s) => s?.kind === "url-set" && s.repo === source.repo)) continue;
+    if (mirrors.some((s) => s.repo === source.repo)) continue;
+    const held = modelscopeSource(source.repo);
+    if (held) mirrors.push(held);
+  }
+  return mirrors.length ? [...list, ...mirrors] : list;
+}
+
 /** The file that says which source served a model folder (`<folder>.source.json`, beside the folder, so the pin never sees it). */
 function sourceNotePath(dir) {
   return `${dir}${SOURCE_NOTE}`;
@@ -768,6 +819,120 @@ function sttPlan(model, root) {
       })),
     ],
   };
+}
+
+/**
+ * A second road to the same pinned weights: ModelScope holds copies of the five Systran faster-whisper repositories under
+ * the same names (tiny, base, small, medium, large-v3). All 21 pinned files were compared on 2026-11-28 against the
+ * pins: the SHA-256 and byte count ModelScope lists for each equal the pin, and a download of three files was hashed
+ * here and matched. The same day every file of Supertone/supertonic-3 (17), onnx-community/wespeaker-voxceleb-resnet34-LM
+ * (3) and the turbo speech model (5, under its old publisher name) was downloaded from ModelScope and hashed: all equal the pin. The mirror is NOT part of `sttPlan().sources` (the first road stays Hugging Face, exactly as it
+ * was); `sttSourcesWithMirror` is the one place that adds it, behind Hugging Face, and moves it first only when the
+ * Doctor reach probe says Hugging Face is down. A file is accepted only when it matches the pinned SHA-256 and size,
+ * so a wrong or moved mirror file is refused like any other source. `Revision=master` is a moving name on purpose:
+ * the pin, not the name, decides.
+ */
+const MODELSCOPE_HOST = "modelscope.cn";
+const MODELSCOPE_FAMILY = "modelscope";
+const MODELSCOPE_LABEL = "ModelScope (same SHA-256)";
+const HUGGING_FACE_HOST = "huggingface.co";
+const MODELSCOPE_REPOS = new Set([
+  ...["tiny", "base", "small", "medium", "large-v3"].map((size) => STT_REPOS[size]),
+  "Supertone/supertonic-3",
+  "onnx-community/wespeaker-voxceleb-resnet34-LM",
+  // The turbo pin is the renamed repository; ModelScope still holds it under the first publisher name.
+  "dropbox-dash/faster-whisper-large-v3-turbo",
+]);
+/**
+ * A pinned repository whose ModelScope copy has another name. Only the url is built from the mapped name: the files,
+ * hashes and sizes are always the pin's own. The turbo plan's first repository is the old name itself, which is not
+ * in `MODELSCOPE_REPOS`, so the speech plan keeps its two Hugging Face sources and only a source that carries the
+ * renamed repository (the Install Manager's turbo row) gets this road. Silero VAD has no entry on purpose: the file
+ * ModelScope holds has the pinned size and other bytes.
+ */
+const MODELSCOPE_REPO_MAP = {
+  "dropbox-dash/faster-whisper-large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+};
+
+/**
+ * The ModelScope copy of a pinned repository as one source: `{ kind: "url-set", host, family, label, repo, files }`,
+ * each file a `kind: "url"` source (`url`, `sha256`, `bytes`, `relPath`) taken from the pin. Null for a repository
+ * ModelScope does not hold in a verified copy.
+ */
+function modelscopeSource(repo) {
+  const pin = pins.pinForRepo(repo);
+  if (!pin || !MODELSCOPE_REPOS.has(repo)) return null;
+  return {
+    kind: "url-set",
+    host: MODELSCOPE_HOST,
+    family: MODELSCOPE_FAMILY,
+    label: MODELSCOPE_LABEL,
+    repo,
+    files: Object.entries(pin.files).map(([file, row]) => ({
+      kind: "url",
+      url: `https://${MODELSCOPE_HOST}/api/v1/models/${MODELSCOPE_REPO_MAP[repo] || repo}/repo?Revision=master&FilePath=${encodeURIComponent(file)}`,
+      sha256: row.sha256,
+      bytes: row.bytes,
+      relPath: file,
+      label: MODELSCOPE_LABEL,
+    })),
+  };
+}
+
+/**
+ * The ordered sources of one speech size with the mirror: Hugging Face (`sttPlan().sources`) first, ModelScope behind it.
+ * `reach` is the Doctor reach map (`{ "<host>": { state: "up" | "down" | "unchecked" } }`, scripts/doctor-probes.cjs):
+ * a host reported down goes last and everything else keeps its order, nothing is dropped, an unchecked host counts as up.
+ * A size with no verified mirror returns the plan's own sources.
+ */
+function sttSourcesWithMirror(model, reach = {}) {
+  const own = sttPlan(model, "").sources;
+  const mirror = modelscopeSource(STT_REPOS[sttSize(model)]);
+  const list = mirror ? [...own, mirror] : own;
+  const hostOf = (source) => source.host || HUGGING_FACE_HOST;
+  const down = (source) => reach?.[hostOf(source)]?.state === "down";
+  return [...list.filter((source) => !down(source)), ...list.filter(down)];
+}
+
+/**
+ * Fetches a `url-set` source into `dir`: every file missing or of the wrong size, one by one through the downloader
+ * (which checks the pinned SHA-256 and size), then the whole folder is hashed against the pin and the pin record is
+ * written, so the folder is the pinned model like any other. A failure leaves the files that passed and returns
+ * `{ ok: false, error }`; it never throws. `deps.downloadUrl`, `deps.sizeOf` and `deps.pinForRepo` stand in for the network, the disk and the pin table in a test.
+ */
+async function downloadMirrorSet(source, dir, deps = {}) {
+  const pin = (deps.pinForRepo || pins.pinForRepo)(source?.repo);
+  if (!pin || source?.kind !== "url-set" || !Array.isArray(source.files))
+    return { ok: false, error: "not a known mirror set" };
+  const fetchOne = deps.downloadUrl || require("./model-download.cjs").downloadUrl;
+  const statSize = deps.sizeOf || ((file) => (fs.existsSync(file) ? fs.statSync(file).size : -1));
+  try {
+    for (const file of source.files) {
+      const pinned = pin.files[file.relPath];
+      if (!pinned || pinned.sha256 !== file.sha256 || pinned.bytes !== file.bytes)
+        throw new Error(`${file.relPath} does not match the pin`);
+      const dest = path.join(dir, file.relPath);
+      if (statSize(dest) === file.bytes) continue;
+      await fetchOne(file.url, dest, {
+        sha256: file.sha256,
+        needBytes: file.bytes,
+        label: source.label,
+        ...(deps.onEvent ? { onEvent: deps.onEvent } : {}),
+        ...(deps.signal ? { signal: deps.signal } : {}),
+      });
+    }
+    const audit = await pins.auditDir(dir, pin, { hash: true });
+    if (!audit.ok) {
+      pins.removeBad(dir, audit);
+      throw new Error(
+        `checksum mismatch: ${[...audit.missing, ...audit.wrongSize, ...audit.wrongDigest].join(", ")}`,
+      );
+    }
+    pins.writeMarker(dir, source.repo, pin);
+    return { ok: true, via: "url-set", source: source.label, path: dir };
+  } catch (error) {
+    return { ok: false, source: source.label, error: String(error?.message || error) };
+  }
 }
 
 function weightsReady(dir, exists) {
@@ -1516,6 +1681,21 @@ const IDLE_UNLOAD_MS = { lite: 180_000, balanced: 600_000, quality: 900_000 };
 
 const round1 = (value) => Math.round(value * 10) / 10;
 
+/**
+ * The optional models a fresh setup plans on this PC (see OPTIONAL_PLAN_FALLBACKS), smallest need first: the Roman
+ * Hinglish ear on every profile, the Hindi Whisper backup when the speech budget carries it (the disk is checked by
+ * `voiceInstallPlan`), the light Hindi voice from 8 GB of RAM, the two small denoisers on every profile but lite.
+ * `hardware-profile.ts` `optionalPlanFor` is the same table.
+ */
+function optionalPlanFor(total, speechBudgetGb, profile) {
+  const ids = ["hinglish-ear"];
+  if (speechBudgetGb >= (manifestOf("hindi-fallback-ear")?.minRamGb ?? Infinity))
+    ids.push("hindi-fallback-ear");
+  if (total >= 8) ids.push("hindi-light-tts");
+  if (profile !== "lite") ids.push("denoise-gtcrn", "denoise-dpdfnet");
+  return ids;
+}
+
 function budgetFor(totalRamGb, freeRamGb, vramGb, gpuInfo = {}, options = {}) {
   const notes = [];
   let total = Number(totalRamGb);
@@ -1622,6 +1802,7 @@ function budgetFor(totalRamGb, freeRamGb, vramGb, gpuInfo = {}, options = {}) {
     ...(hindiPunct ? ["hindi-punct"] : []),
   ];
   const install = wanted.filter((id, at) => wanted.indexOf(id) === at);
+  const optionalInstall = optionalPlanFor(total, speechBudgetGb, profile);
   const packs = VOICE_PACKS.filter((pack) => LANGUAGE_PACKS.includes(pack.id)).map((pack) => {
     const members = packMemberIds(pack, size);
     return {
@@ -1639,6 +1820,7 @@ function budgetFor(totalRamGb, freeRamGb, vramGb, gpuInfo = {}, options = {}) {
     ttsEngine: "supertonic",
     packs,
     install,
+    optionalInstall,
     allowedSizes,
     maxResidentModels: 2,
     idleUnloadMs: IDLE_UNLOAD_MS[profile],
@@ -1825,8 +2007,125 @@ function streamAutoBenchPassed(p95Ms) {
 
 const mb = (bytes) => `${Math.round(bytes / 1024 ** 2)} MB`;
 
-/** An upper bound for the English streaming speech download, used only to check the disk (its real size is the publisher's). */
+/** An upper bound for the English streaming speech download, used only when the file set is unknown (its real size is the set's). */
 const MOONSHINE_DISK_BYTES = 100 * 1024 ** 2;
+
+/**
+ * File sets: a model that is several single files from the publisher's own host (no Hugging Face repository to pin by
+ * revision), each file pinned by url, SHA-256 and bytes and fetched through the same downloader. `moonshine-en` is
+ * English streaming speech (Moonshine tiny streaming, MIT; the publisher's README says the English speech models are
+ * MIT, the exceptions are the non-English ones) in `<root>/models/moonshine-en`, the folder `kernel/stt.py`
+ * `moonshine_model_dir` reads. The nine files are the list the moonshine-voice 0.1.6 package itself downloads for
+ * `get_model_for_language("en", TINY_STREAMING)`: read from that Windows wheel's native library and from the CDN on
+ * 2026-11-28, every file fetched and hashed here. The folder name `quantized_26_11_02` belongs to that package version,
+ * so the pin moves with `moonshine-voice` in kernel/requirements-capabilities.txt. The publisher's Hugging Face copy
+ * of the CDN (`moonshine-ai/moonshine-voice-assets`) holds `quantized_26_11_07` only, a newer set a newer package
+ * would ask for, so it is NOT a second source of these bytes and none is listed.
+ * Not in `modelRegistry` yet: the Models page catalog and the Install Manager rows read the registry, and
+ * `src/lib/friday/model-catalog.ts` must grow the same row first.
+ */
+const MOONSHINE_BASE = "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_11_02";
+const FILE_SETS = [
+  {
+    id: "moonshine-en",
+    label: "FRIDAY Ear Live English",
+    kind: "stt",
+    dir: ["models", "moonshine-en"],
+    license: "MIT",
+    firewallClass: "local",
+    optional: true,
+    fallback: "faster-whisper (the speech model of today)",
+    files: [
+      ["adapter.ort", 1319616, "c5f9f7cc98c27a965d8e200816f7e5c07b892712bb30cf07444bbde4ffd38199"],
+      ["cross_kv.ort", 1287504, "5f68900da4ea20f40fbe67bbec36399f0d47faedbd7198b29abd9dc5f472ef9f"],
+      [
+        "decoder_kv.ort",
+        32748720,
+        "6564f2c9a19de44195a53e336e07d05108f14babab57105d623bb68b79572d75",
+      ],
+      [
+        "decoder_kv_with_attention.ort",
+        32676624,
+        "24181780a1cec49516390213fd3cb10261d8dbc0efd52f36bd51b2ae001e761c",
+      ],
+      ["encoder.ort", 7675392, "617e403b2aae48f2474e0b148bf835deb9510bc8692efeabfe27203959a3256e"],
+      [
+        "frontend.model.ort",
+        23392,
+        "5662679f0e5758646d8eade3bc4b5d9ebda875feb6e696c0cc5f1a08fea2219e",
+      ],
+      [
+        "frontend.weights.ort",
+        2093416,
+        "55c91d7efab9f7506d7d753131cba72145ff016be3447319fe414a31e13f25b4",
+      ],
+      [
+        "streaming_config.json",
+        509,
+        "74fe5ddebd63b17caf59e8a3b18c17547ff7bce1642050edbb1c3962674f8950",
+      ],
+      ["tokenizer.bin", 249974, "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"],
+    ].map(([file, bytes, sha256]) => ({
+      file,
+      sha256,
+      bytes,
+      url: `${MOONSHINE_BASE}/${file}`,
+    })),
+  },
+];
+
+/** The file sets, with the bytes and the licence: `[{ id, label, kind, dir, license, optional, fallback, files, diskBytes }]`. */
+function fileSets() {
+  return FILE_SETS.map((set) => ({
+    ...set,
+    dir: [...set.dir],
+    files: set.files.map((file) => ({ ...file })),
+    diskBytes: set.files.reduce((sum, file) => sum + file.bytes, 0),
+  }));
+}
+
+/** True when every file of a set is on disk at its pinned size (`deps.sizeOf` stands in for the disk). */
+function fileSetReady(root, id, deps = {}) {
+  const set = FILE_SETS.find((row) => row.id === id);
+  if (!root || !set) return false;
+  const at = (file) => path.join(root, ...set.dir, file.file);
+  // `deps.sizeOf` checks the pinned size; `deps.exists` alone (a plan's stand-in for the disk) checks presence.
+  if (!deps.sizeOf && typeof deps.exists === "function")
+    return set.files.every((file) => deps.exists(at(file)));
+  const sizeOf = deps.sizeOf || ((file) => (fs.existsSync(file) ? fs.statSync(file).size : -1));
+  return set.files.every((file) => sizeOf(at(file)) === file.bytes);
+}
+
+/**
+ * One download job per file of a set, in the shape of the other pinned helper jobs: `job.modelId` is the set id and
+ * `job.dir` the models folder, so the downloader's url source writes `<root>/models/<id>/<file>`. Each source carries the
+ * pinned SHA-256 and size, so a wrong file is refused. A failure is a note that names the fallback (`optional`).
+ */
+function fileSetJobs(root, id) {
+  const set = FILE_SETS.find((row) => row.id === id);
+  if (!root || !set) return [];
+  return set.files.map((file) => ({
+    id: `${set.id}/${file.file}`,
+    kind: "voice-model",
+    optional: set.optional === true,
+    fallback: set.fallback,
+    approxBytes: file.bytes,
+    ready: path.join(root, ...set.dir, file.file),
+    job: {
+      modelId: set.id,
+      dir: path.join(root, "models"),
+      sources: [
+        {
+          kind: "url",
+          url: file.url,
+          sha256: file.sha256,
+          bytes: file.bytes,
+          label: "Moonshine (publisher's own download host, pinned SHA-256)",
+        },
+      ],
+    },
+  }));
+}
 
 /** The speech sizes besides the planned ear that a setup keeps: the lite fallback, and small beside a GPU-sized ear. */
 function extraSizesFor(primary) {
@@ -1946,7 +2245,18 @@ function voiceInstallPlan(root, probe, deps = {}) {
       ),
     );
   }
-  extras.push(extraItem("moonshine-en", "engine", MOONSHINE_DISK_BYTES, false));
+  // English streaming speech: the pinned file set (real bytes, real presence). When it must be fetched the plan carries
+  // the per-file jobs (url, SHA-256, bytes), so the fetcher needs no second list.
+  const moonshine = fileSets().find((set) => set.id === "moonshine-en");
+  const moonshineHere = fileSetReady(root, "moonshine-en", { exists });
+  const moonshineItem = extraItem(
+    "moonshine-en",
+    "engine",
+    moonshine?.diskBytes ?? MOONSHINE_DISK_BYTES,
+    moonshineHere,
+  );
+  if (moonshineItem.state === "download") moonshineItem.jobs = fileSetJobs(root, "moonshine-en");
+  extras.push(moonshineItem);
   // The streaming ear: planned only on a PC that can carry it (see streamEarDecision), reused when already verified on
   // disk. Planned, it stays optional: a failed fetch is a note naming the fallback, and the Doctor shows it missing but
   // not required; a plan that skips it says why, and the Doctor shows that as skipped, never missing.
@@ -1980,6 +2290,43 @@ function voiceInstallPlan(root, probe, deps = {}) {
       }
     }
     streamEar = item;
+  }
+  // The optional language and sound models of this PC (`budget.optionalInstall`): planned last, after the extras and the
+  // streaming ear, on the disk that is left (1.3 times the bytes). Each is optional with its fallback, so a failed fetch
+  // is a note and the Doctor shows an absent one as missing, not required. They are kept apart from `items` (the models
+  // every voice plan must list) as `optionalItems`; their bytes stay out of `downloadBytes` (`optionalBytes`).
+  const optionalItems = [];
+  let optionalBytes = 0;
+  for (const id of budget.optionalInstall) {
+    const facts = manifestOf(id);
+    if (!facts) continue;
+    const item = {
+      id,
+      kind: facts.kind,
+      bytes: facts.diskBytes,
+      state: "download",
+      reason: "",
+      optional: true,
+      fallback: planFallback(id),
+    };
+    if (onDisk.has(id)) item.state = "on-disk";
+    else {
+      const room = pins.diskPreflight(
+        root,
+        planned +
+          extraBytes +
+          (streamEar?.state === "download" ? streamEar.bytes : 0) +
+          optionalBytes +
+          facts.diskBytes,
+        deps.statfs ? { statfs: deps.statfs } : {},
+      );
+      if (room.ok) optionalBytes += facts.diskBytes;
+      else {
+        item.state = "skipped";
+        item.reason = room.error;
+      }
+    }
+    optionalItems.push(item);
   }
   const blocked = SIZE_ORDER.filter((size) => !budget.allowedSizes.includes(size)).map((size) => ({
     id: size,
@@ -2015,6 +2362,13 @@ function voiceInstallPlan(root, probe, deps = {}) {
       lines.push(`[friday] INFO     ${item.id} will be fetched (${mb(item.bytes)})`);
     else lines.push(`[friday] INFO     ${item.id} skipped: ${item.reason}`);
   }
+  for (const item of optionalItems) {
+    if (item.state === "on-disk")
+      lines.push(`[friday] ok       ${item.id} (optional) already on disk (${mb(item.bytes)})`);
+    else if (item.state === "download")
+      lines.push(`[friday] INFO     ${item.id} (optional) will be fetched (${mb(item.bytes)})`);
+    else lines.push(`[friday] INFO     ${item.id} (optional) skipped: ${item.reason}`);
+  }
   for (const row of blocked) {
     row.line = `[friday] INFO     ${row.id} skipped: ${row.reason}`;
     lines.push(row.line);
@@ -2033,6 +2387,8 @@ function voiceInstallPlan(root, probe, deps = {}) {
     optional,
     streamEar,
     streamEarBytes: streamEar?.state === "download" ? streamEar.bytes : 0,
+    optionalItems,
+    optionalBytes,
     downloadBytes: planned,
     lines,
   };
@@ -2066,7 +2422,7 @@ async function ensureSttWeights(model, root, deps = {}) {
       plan,
     };
   }
-  const result = await deps.downloadModel(
+  let result = await deps.downloadModel(
     {
       modelId: plan.size,
       sources: plan.sources,
@@ -2075,6 +2431,30 @@ async function ensureSttWeights(model, root, deps = {}) {
     deps.onEvent,
     deps.signal,
   );
+  // Every Hugging Face road failed (not for want of a network): the ModelScope copy of the same pinned files is tried,
+  // each file held to the pinned SHA-256 and size. Only with the real downloader (or an injected `downloadUrl`), so a
+  // stand-in `downloadModel` in a test never reaches the network.
+  const mirror = modelscopeSource(plan.repo);
+  const realDownloader =
+    typeof deps.downloadUrl === "function" ||
+    deps.downloadModel === require("./model-download.cjs").downloadModel;
+  if (
+    !result?.ok &&
+    mirror &&
+    plan.pin &&
+    realDownloader &&
+    !/^offline/i.test(String(result?.error || ""))
+  ) {
+    deps.onEvent?.({ status: `source: ${mirror.label}` });
+    const got = await downloadMirrorSet(mirror, plan.dir, deps);
+    result = got.ok
+      ? { ok: true, via: got.via, source: got.source }
+      : {
+          ...result,
+          ok: false,
+          error: `${result?.error || "no source answered"}; ${mirror.label}: ${got.error}`,
+        };
+  }
   if (!result?.ok && !repaired.length && weightsReady(plan.dir, exists)) {
     // Nothing was damaged: a pinned file was only missing (a vocabulary or preprocessor file) and the
     // network is not there. The weights that opened before still open; this is not a reason to go silent.
@@ -2179,6 +2559,16 @@ module.exports = {
   STREAM_EAR_FALLBACK,
   isPlanOptional,
   planFallback,
+  OPTIONAL_PLAN_FALLBACKS,
+  modelscopeSource,
+  withModelscopeRoad,
+  MODELSCOPE_REPO_MAP,
+  sttSourcesWithMirror,
+  downloadMirrorSet,
+  MODELSCOPE_HOST,
+  fileSets,
+  fileSetReady,
+  fileSetJobs,
   pinnedFailureLine,
   streamEarDecision,
   STREAM_AUTO,

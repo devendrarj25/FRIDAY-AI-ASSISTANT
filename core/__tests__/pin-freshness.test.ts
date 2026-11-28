@@ -18,6 +18,7 @@ type Verdict = {
 const mod = require_("../../scripts/pin-freshness.cjs") as {
   PINS: Pin[];
   GRACE_DAYS: number;
+  MIN_PIN_AGE_DAYS: number;
   compareVersions: (a: string, b: string) => number;
   readPin: (pin: Pin, root: string) => { versions: Set<string>; where: string[] };
   fetchLatest: (
@@ -45,6 +46,14 @@ describe("compareVersions", () => {
     expect(mod.compareVersions("1.9.0", "1.10.0")).toBe(-1);
     expect(mod.compareVersions("8.30.1", "8.30.1")).toBe(0);
     expect(mod.compareVersions("2.0", "1.99.9")).toBe(1);
+  });
+});
+
+describe("the shared age numbers", () => {
+  it("export the seven-day floor a new pin must clear, apart from the report-only grace period", () => {
+    expect(mod.MIN_PIN_AGE_DAYS).toBe(7);
+    expect(mod.GRACE_DAYS).toBe(14);
+    expect(mod.MIN_PIN_AGE_DAYS).toBeLessThan(mod.GRACE_DAYS);
   });
 });
 

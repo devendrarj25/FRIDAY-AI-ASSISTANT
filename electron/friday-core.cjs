@@ -189,6 +189,19 @@ function sourcesFor(manifest, file, pack, variantId = "", deps = {}) {
         parts: 1,
         urls: [`https://huggingface.co/${u.repo}/resolve/${u.revision}/${segments}`],
       });
+    } else if (mirror.kind === "modelscope") {
+      // The same file on ModelScope, only for a repository the manifest lists as compared there (`repos`): the road is
+      // a plain url, and the pinned size and SHA-256 decide whether the bytes are kept.
+      const u = file.upstream;
+      if (!Array.isArray(mirror.repos) || !mirror.repos.includes(u.repo)) continue;
+      const segments = String(u.file).split("/").map(encodeURIComponent).join("/");
+      out.push({
+        id: mirror.id,
+        parts: 1,
+        urls: [
+          `https://modelscope.cn/api/v1/models/${u.repo}/repo?Revision=master&FilePath=${segments}`,
+        ],
+      });
     }
   }
   return out;

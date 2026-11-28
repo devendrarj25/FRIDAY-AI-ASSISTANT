@@ -1046,48 +1046,117 @@ describe("prefetch resilience and the English streaming speech", () => {
     expect(tail).not.toMatch(/^\s*process\.exit\((?!code)/m);
   });
 
-  it("fetches the English streaming weights once, with the venv Python, and is quiet when they are there", async () => {
+  it("shows a progress row for the English streaming weights: a line per ten percent and a closing line", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-moon-"));
+    try {
+      const lines: string[] = [];
+      const target = path.join(dir, "models", "moonshine-en");
+      const { DownloadBoard } = require_(path.join(root, "scripts/download-board.cjs"));
+      const board = new DownloadBoard({ tty: false, log: (line: string) => void lines.push(line) });
+      board.start([{ id: "moonshine-en", approxBytes: 78_075_147 }]);
+      const download = async (
+        job: { sources: Array<{ url: string; bytes: number }> },
+        onEvent: (event: Record<string, unknown>) => void,
+      ) => {
+        const source = job.sources[0]!;
+        onEvent({
+          progress: 50,
+          bytesDone: source.bytes / 2,
+          bytesTotal: source.bytes,
+          speedMbps: 5,
+        });
+        mkdirSync(target, { recursive: true });
+        writeFileSync(
+          path.join(target, path.basename(new URL(source.url).pathname)),
+          Buffer.alloc(source.bytes),
+        );
+        onEvent({ progress: 100, bytesDone: source.bytes, bytesTotal: source.bytes, speedMbps: 5 });
+        return { ok: true, bytes: source.bytes };
+      };
+      const row = await prefetch.fetchMoonshine(dir, { log: () => {}, download, board });
+      expect(row).toMatchObject({ ok: true, downloaded: true });
+      const text = lines.join("\n");
+      expect(text).toMatch(
+        /moonshine-en\s+\[[^\]]*\]\s+\d+%\s+\d+(\.\d+)? MB\/\d+(\.\d+)? MB\s+5\.0 MB\/s/,
+      );
+      expect(text).toMatch(/moonshine-en\s+\[[^\]]*\] 100%/);
+      expect(text).toMatch(/ALL\s+\[[^\]]*\] 100%\s+1\/1 ready/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fetches the English streaming weights once, file by file through the pinned downloader, and is quiet when they are there", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "friday-moon-"));
     try {
       const lines: string[] = [];
       const log = (line: string) => void lines.push(line);
       const target = path.join(dir, "models", "moonshine-en");
-      // No Python yet: skipped, not failed.
-      expect(await prefetch.fetchMoonshine(dir, { env: {}, log })).toMatchObject({
-        ok: true,
-        skipped: true,
-      });
-      expect(prefetch.moonshineReady(target)).toBe(false);
-
-      const calls: string[][] = [];
-      const run = (python: string, args: string[]) => {
-        calls.push([python, ...args]);
-        mkdirSync(path.join(target, "download.moonshine.ai", "model"), { recursive: true });
-        writeFileSync(
-          path.join(target, "download.moonshine.ai", "model", "encoder.ort"),
-          Buffer.alloc(200_000),
-        );
-        return { status: 0, stdout: "MOONSHINE_OK x", stderr: "" };
+      const weights = require_(path.join(root, "electron/voice-weights.cjs"));
+      const set = weights.fileSets().find((row: { id: string }) => row.id === "moonshine-en");
+      const calls: Array<{ modelId: string; sources: Array<Record<string, unknown>> }> = [];
+      const download = async (job: {
+        modelId: string;
+        sources: Array<{ url: string; sha256: string; bytes: number }>;
+      }) => {
+        calls.push(job);
+        const source = job.sources[0]!;
+        const name = path.basename(new URL(source.url).pathname);
+        mkdirSync(target, { recursive: true });
+        writeFileSync(path.join(target, name), Buffer.alloc(source.bytes));
+        return { ok: true, bytes: source.bytes };
       };
-      const first = await prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      const first = await prefetch.fetchMoonshine(dir, { log, download });
       expect(first).toMatchObject({ id: "moonshine-en", ok: true, downloaded: true });
-      expect(calls[0]![0]).toBe("py");
-      expect(calls[0]![2]).toContain("TINY_STREAMING");
-      expect(calls[0]![3]).toBe(target);
+      // one job per pinned file, each with its url, SHA-256 and size, no Python anywhere
+      expect(calls).toHaveLength(set.files.length);
+      expect(calls.every((job) => job.modelId === "moonshine-en")).toBe(true);
+      expect(calls.every((job) => /^[0-9a-f]{64}$/.test(String(job.sources[0]!["sha256"])))).toBe(
+        true,
+      );
+      expect(weights.fileSetReady(dir, "moonshine-en")).toBe(true);
       expect(prefetch.moonshineReady(target)).toBe(true);
 
-      const again = await prefetch.fetchMoonshine(dir, { env: { FRIDAY_PYTHON: "py" }, log, run });
+      const again = await prefetch.fetchMoonshine(dir, { log, download });
       expect(again).toMatchObject({ ok: true, downloaded: false });
-      expect(calls.length).toBe(1);
+      expect(calls).toHaveLength(set.files.length);
+      // The check is by size only, so the line says "present (size checked)", never "verified".
+      expect(lines.join("\n")).toContain(
+        "moonshine-en present (size checked); not downloaded again",
+      );
+      expect(lines.join("\n")).not.toContain("moonshine-en verified");
 
+      // A failed file is an optional NOTE that names the fallback, never a stop.
       rmSync(target, { recursive: true, force: true });
       const failed = await prefetch.fetchMoonshine(dir, {
-        env: { FRIDAY_PYTHON: "py" },
         log,
-        run: () => ({ status: 1, stdout: "", stderr: "ConnectionError: offline" }),
+        download: async () => ({ ok: false, error: "ConnectionError: offline" }),
       });
-      expect(failed).toMatchObject({ ok: false });
+      expect(failed).toMatchObject({ ok: false, optional: true });
       expect(failed.error).toContain("offline");
+      expect(lines.join("\n")).toMatch(/NOTE\s+moonshine-en did not download[^\n]*faster-whisper/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("orders the sources of a download by the Doctor's reach map: a host that is down goes last, none is dropped", () => {
+    const sources = [
+      { kind: "hf-repo", repo: "a/b" },
+      { kind: "url-set", host: "modelscope.cn" },
+    ];
+    expect(prefetch.orderByReach(sources, null)).toBe(sources);
+    const ordered = prefetch.orderByReach(sources, { "huggingface.co": { state: "down" } });
+    expect(ordered.map((s: { kind: string }) => s.kind)).toEqual(["url-set", "hf-repo"]);
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-reach-"));
+    try {
+      const file = path.join(dir, "reach.json");
+      writeFileSync(file, JSON.stringify({ "huggingface.co": { state: "down" } }));
+      expect(prefetch.readReach({ FRIDAY_REACH_CACHE: file })).toMatchObject({
+        "huggingface.co": { state: "down" },
+      });
+      expect(prefetch.readReach({})).toBeNull();
+      expect(prefetch.readReach({ FRIDAY_REACH_CACHE: path.join(dir, "none.json") })).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1547,7 +1616,11 @@ describe("a renamed speech repository still downloads", () => {
       "dropbox-dash/faster-whisper-large-v3-turbo",
     ]);
     for (const id of ["stt-tiny", "stt-base", "stt-small", "stt-medium", "stt-large-v3"]) {
-      expect(jobs.find((j: { id: string }) => j.id === id).job.sources).toHaveLength(1);
+      // one Hugging Face repository (no renamed second one); the verified ModelScope copy may follow it as a url-set
+      const sources = jobs.find((j: { id: string }) => j.id === id).job.sources;
+      expect(sources.filter((s: { kind: string }) => s.kind === "hf-repo")).toHaveLength(1);
+      expect(sources[0].kind).toBe("hf-repo");
+      expect(sources.slice(1).every((s: { kind: string }) => s.kind === "url-set")).toBe(true);
     }
   });
 });

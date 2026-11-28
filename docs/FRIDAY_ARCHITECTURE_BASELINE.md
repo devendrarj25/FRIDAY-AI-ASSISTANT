@@ -30,7 +30,7 @@ Folder and subsystem pins the architecture audit enforces. Runtime layers and th
 
 ## 3. `core/` is not the live runtime
 
-Vitest and typed contracts live under `core/`. Renderer, Electron, and kernel must not import it as a second brain. Locked-path tests: `core/__tests__/project-independence.test.ts`.
+Vitest and typed contracts live under `core/`. Renderer, Electron, and kernel must not import it as a second brain. Independence tests: `core/__tests__/project-independence.test.ts`.
 
 ## 4. Authoritative files (do not fork)
 

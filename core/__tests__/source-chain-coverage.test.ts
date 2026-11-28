@@ -64,15 +64,28 @@ const KNOWN_GAPS = {
   /** The data file says why all of a row's official sources are one host. */
   oneOfficialHost: {
     reason:
-      "the official host is the only publisher: Hugging Face for the ggml weights (a revision and the file's content id are two reads of one repository), Memurai's own page for Redis (Memurai)",
-    ids: ["Redis (Memurai)", "ggml-base", "ggml-tiny"],
+      "the official host is the only publisher: Hugging Face for the ggml weights (a revision and the file's content id are two reads of one repository), Memurai's own page for Redis (Memurai), or the vendor is the only publisher of a download road and the data row names it in singleSourceReason",
+    ids: [
+      "Docker Desktop",
+      "FRIDAY GitHub CLI",
+      "MongoDB",
+      "NSIS",
+      "OpenJDK (Temurin)",
+      "Redis (Memurai)",
+      "Ruby",
+      "Temurin JDK zip",
+      "Visual Studio Code",
+      "Windows Terminal",
+      "ggml-base",
+      "ggml-tiny",
+    ],
   },
   /** `releases/latest` strings outside vendor-sources.cjs that bypass the source chain (counts per file). */
   rawLatestUrl: {
     reason:
-      "scripts/setup-windows.ps1 (PowerShell, locked CMD chain) reads FRIDAY's own repos with a direct releases/latest call; the four JS sites were routed through resolveLatest and left this list",
+      "scripts/setup-windows.ps1 (PowerShell, CMD chain) reads FRIDAY's own repos with a direct releases/latest call; the four JS sites were routed through resolveLatest and left this list",
     files: {
-      // The locked setup script (PowerShell, no access to the JS chain) reads FRIDAY's own two repos. Owner's call.
+      // The setup script (PowerShell, no access to the JS chain) reads FRIDAY's own two repos. Owner's call.
       "scripts/setup-windows.ps1": 1,
     } as Record<string, number>,
   },

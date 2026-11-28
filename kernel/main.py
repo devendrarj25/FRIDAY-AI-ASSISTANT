@@ -888,6 +888,7 @@ async def dispatch(method: str, params: dict, send) -> dict:
                 route_mode=route_mode,
                 privacy=str(privacy_mode) if privacy_mode else None,
                 surface=params.get("routingSurface") if params.get("routingSurface") in ("voice", "chat") else None,
+                lane=params.get("lane") if params.get("lane") in ("quick", "full") else None,
                 reasoning_effort=params.get("reasoningEffort")
                 if params.get("reasoningEffort") in ("low", "medium", "high")
                 else None,

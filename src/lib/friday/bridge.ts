@@ -77,6 +77,8 @@ declare global {
         /** auto | local-only | cloud-only | hybrid | manual | multi */
         routeMode?: string;
         routingSurface?: "voice" | "chat";
+        /** The voice lane of this turn: a quick spoken line or the real answer. Anything else is ignored. */
+        lane?: "quick" | "full";
         /** How hard a steerable model should think; models without a control ignore it. */
         reasoningEffort?: "low" | "medium" | "high";
         /** Upper bound on the reply length (tokens). Voice sends a short one; chat sends none. */

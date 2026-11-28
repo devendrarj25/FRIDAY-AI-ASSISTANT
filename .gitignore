@@ -181,6 +181,36 @@ bun.lock
 /database/*.corrupt-*
 /database/backups/
 /models/moonshine-en/
+# The other model folders FRIDAY downloads into <root>/models (config/friday-core.json diskDir, the catalog ids of
+# electron/voice-weights.cjs and electron/voice-pins.cjs), the note of which source served each, the kept previous
+# revision of a folder, and a download that was cut short. The models/*/index.ts sources stay tracked.
+/models/friday-core/
+/models/denoise-dpdfnet/
+/models/denoise-gtcrn/
+/models/hindi-ear/
+/models/hindi-fallback-ear/
+/models/hindi-light-tts/
+/models/hindi-punct/
+/models/hindi-vaani-ear/
+/models/hinglish-ear/
+/models/hinglish-ear-pro/
+/models/hinglish-ear-trelis/
+/models/moonshine-ear/
+/models/parakeet-ear/
+/models/shruti-ear/
+/models/silero-vad/
+/models/smart-turn/
+/models/speaker-wespeaker/
+/models/stream-ear-nemotron/
+/models/supertonic-3/
+/models/wake/
+/models/*.source.json
+/models/*.prev/
+/models/*.swap/
+*.part
+# The owner's credentials store and the updater's backups when the FRIDAY folder is this checkout.
+/security/
+/backups/
 
 # What a CMD build places in the FRIDAY folder when that folder is this checkout (scripts/place-build.cjs): the installer
 # copies, the local-build pointer and the opt-in weight packs. The installer's own sources stay tracked.

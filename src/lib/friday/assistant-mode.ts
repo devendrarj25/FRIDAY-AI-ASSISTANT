@@ -316,7 +316,9 @@ import {
   narrate,
   sanitizeForSpeech,
   STATUS_LINES,
+  cleanTaskStatus,
   statusLine,
+  taskStatusFallback,
   type NarrateEvent,
   type NarrationLang,
   type StatusKey,
@@ -324,6 +326,7 @@ import {
 import { createFinalDeduper } from "./voice-engine/final-dedupe";
 import { routeCommandLane, routeUtterance, type Route } from "./voice-engine/utterance-router";
 import {
+  ackLanguage,
   ackStillDue,
   shouldAck,
   type AckDecision,
@@ -335,7 +338,16 @@ import {
   recordFirstClause,
   type FirstClauseHistory,
 } from "./voice-engine/expected-answer";
-import type { LadderLane } from "./voice-engine/brain-bridge";
+import {
+  statusLineDue,
+  statusLineRequest,
+  statusLineStillDue,
+  statusVerbFor,
+  voiceSendOptions,
+  type LadderLane,
+  type StatusVerb,
+} from "./voice-engine/brain-bridge";
+import { askFriday } from "./ask";
 import { notifications } from "./notifications";
 import { earlyClause, realtimeSilenceMs, realtimeStatus } from "./voice-realtime";
 import {
@@ -3650,6 +3662,139 @@ class AssistantModeStore {
     this.narrateEvent({ kind: "rollup" }, this.narrationCtx(false));
   }
 
+  /** What one long task's status lines remember: when it began, the last line, how many were said, and a model call in flight. */
+  private statusTask: {
+    id: string;
+    generation: number;
+    lastAt: number | null;
+    sent: number;
+    busy: boolean;
+  } | null = null;
+  private statusGeneration = 0;
+
+  /**
+   * The long task a status line may be about: the foreground run, else the first running desk task. Only its start
+   * time, its id and its words for the closed verb list are read; the label never reaches a model or a speaker.
+   */
+  private statusTarget(): { id: string; label: string; startedAt: number } | null {
+    const snap = brain.getSnapshot();
+    const run = snap.activeRunId ? snap.runs.find((row) => row.id === snap.activeRunId) : undefined;
+    if (run && run.state === "running") {
+      return { id: run.id, label: run.prompt, startedAt: run.startedAt };
+    }
+    const task = routerTasks().find((row) => row.state === "RUNNING");
+    return task ? { id: task.id, label: task.label, startedAt: task.createdAt } : null;
+  }
+
+  /** The gates of a status line that only the conductor can read, shared by the first check and every re-check. */
+  private statusGates() {
+    const voice = preferences.getSnapshot().voice;
+    return {
+      held: this.ackHeld() || voice.speakReplies === false,
+      speaking: this.state.speaking || this.arbiter.size() > 0,
+      ownerSpeaking: voiceGate.heardSpeechWithin(400) || Boolean(this.interruptHold),
+      pendingConfirmation: this.ackAwaitingAnswer(),
+      callHold: this.callHold,
+      answerStarted: this.ackFirstClause(),
+    };
+  }
+
+  /**
+   * A long task has run a while with no answer yet: the small fast model may say one short status line, from a closed
+   * template that carries only the task verb. Run from the supervisor's beat (no timer of its own). Only Auto mode
+   * speaks; Chat and Manual never reach the model call or the speaker. The line is a progress line, never a yes.
+   */
+  private statusLineTick(now: number) {
+    const target = this.state.mode === "auto" ? this.statusTarget() : null;
+    if (!target) {
+      this.statusTask = null;
+      return;
+    }
+    if (this.statusTask?.id !== target.id) {
+      this.statusTask = {
+        id: target.id,
+        generation: ++this.statusGeneration,
+        lastAt: null,
+        sent: 0,
+        busy: false,
+      };
+    }
+    const task = this.statusTask;
+    if (task.busy) return;
+    const voice = preferences.getSnapshot().voice;
+    const gates = this.statusGates();
+    const verdict = statusLineDue({
+      mode: this.state.mode,
+      speakReplies: voice.speakReplies !== false,
+      held: gates.held,
+      quiet: !alertsAudible(),
+      whisperMode: voice.whisperMode === true,
+      callHold: gates.callHold,
+      pendingConfirmation: gates.pendingConfirmation,
+      speaking: gates.speaking,
+      ownerSpeaking: gates.ownerSpeaking,
+      taskRunning: true,
+      answerStarted: gates.answerStarted,
+      now,
+      taskStartedAt: target.startedAt,
+      lastStatusAt: task.lastAt,
+      sentThisTask: task.sent,
+    });
+    if (!verdict.due) return;
+    // The gap counts from this attempt, so a dropped line never retries on the next beat.
+    task.lastAt = now;
+    task.busy = true;
+    void this.sayStatusLine(target, task, statusVerbFor(target.label)).finally(() => {
+      task.busy = false;
+    });
+  }
+
+  /** One status line: ask the fast model for the closed template, clean what it said, speak it if still welcome. */
+  private async sayStatusLine(
+    target: { id: string; label: string },
+    task: { id: string; generation: number; sent: number },
+    verb: StatusVerb,
+  ) {
+    const lang = ackLanguage(this.lastOwnerLine);
+    const stillDue = () => {
+      const live = this.statusTarget();
+      return (
+        this.state.mode === "auto" &&
+        statusLineStillDue(
+          { taskId: task.id, generation: task.generation },
+          {
+            taskId: live?.id ?? "",
+            generation: this.statusTask?.generation ?? -1,
+            taskRunning: live !== null,
+            ...this.statusGates(),
+          },
+        ).due
+      );
+    };
+    let raw = "";
+    // A private task never starts a model call for a line about it: the fixed line says the same, locally.
+    if (!looksSensitive(target.label)) {
+      try {
+        const request = statusLineRequest(verb, lang);
+        const send = voiceSendOptions({ lane: "quick", turnId: `status-${task.generation}` });
+        raw = await askFriday(request.prompt, {
+          system: request.system,
+          maxTokens: request.maxTokens,
+          timeoutMs: 6_000,
+          ephemeral: true,
+          routingSurface: send.routingSurface,
+          lane: send.lane,
+        });
+      } catch {
+        raw = "";
+      }
+    }
+    if (!stillDue()) return;
+    const line = cleanTaskStatus(raw, lang) ?? taskStatusFallback(verb, lang, task.sent);
+    task.sent += 1;
+    this.announceTask(line, { priority: "progress", coalesceKey: `status:${task.id}` });
+  }
+
   /**
    * The supervisor's turn, run from the microphone analyser's own beat (no timer of its own): if the session
    * has sat in one state longer than that state can last, mend it through the one heal policy, quietly.
@@ -3660,6 +3805,7 @@ class AssistantModeStore {
     this.lastSupervisorTick = now;
     this.soak.sample(now, heapMegabytes());
     this.slowTaskTick(now);
+    this.statusLineTick(now);
     const verdict = superviseVoice({
       mode: this.state.mode,
       paused: this.state.paused,

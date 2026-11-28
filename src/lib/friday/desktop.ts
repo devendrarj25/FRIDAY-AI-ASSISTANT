@@ -284,7 +284,7 @@ export type InstallerCatalogRow = {
   fit: EngineFit;
   /** llama.cpp and stable-diffusion.cpp: the builds this PC would use, best first, and the installed one. */
   engine?: {
-    chain: ("cuda" | "vulkan" | "cpu")[];
+    chain: ("cuda" | "rocm" | "vulkan" | "cpu")[];
     skipped: { backend: string; reason: string }[];
     active: {
       installed: boolean;
@@ -301,6 +301,23 @@ export type InstallerDoctorRow = {
   status: "ok" | "warn" | "fail" | "skip";
   detail: string;
   repair: { id: string; action: "install" | "repair" } | null;
+};
+
+/** One item setup could not finish (<root>/runtime/setup-notices.json), with the catalogue row or Doctor row that finishes it. */
+export type SetupNoticeRow = {
+  id: string;
+  kind: string;
+  label: string;
+  reason: string;
+  /** The row id the notice names: `voice:<id>`, `model:ollama:<tag>`, `pack:...`, or a Doctor id (`cuda-libs`). */
+  installManagerId: string;
+  /** The terminal command that repairs it. */
+  repair: string;
+  at: string;
+  /** The catalogue row with `installManagerId`, or null. */
+  rowId: string | null;
+  /** The Doctor row with `installManagerId`, or null. */
+  doctorId: string | null;
 };
 
 export type InstallerCatalog = {
@@ -321,6 +338,8 @@ export type InstallerCatalog = {
   split: { supported: string[]; limited: string[]; unsupported: string[] };
   counts: { rows: number; updates: number; errors: number; stale: number };
   doctor: InstallerDoctorRow[];
+  /** What setup could not finish and is still open; an installed item is cleared before this is sent. */
+  setupNotices?: SetupNoticeRow[];
 };
 
 export type InstallerRefreshResult = {

@@ -68,12 +68,17 @@ def ollama_keep_alive() -> str | int:
     return _DEFAULT_KEEP_ALIVE if planned is None else planned
 
 
-# One reader for the Ollama context window. The value is the shared plan in config/chat-tiers.json
-# (ollamaSettings.options.num_ctx, the same one electron/setup-plan.cjs reports); a PC with little memory gets a
-# smaller window so the KV cache cannot starve the weights. FRIDAY_OLLAMA_NUM_CTX sets it or turns it off.
+# One reader for the Ollama context window. Order: FRIDAY_OLLAMA_NUM_CTX (a number, or off) wins; then the window
+# the setup plan says this PC carries (electron/setup-plan.cjs `chat.numCtx` from the current hardware facts, which the
+# desktop records in <FRIDAY_ROOT>/runtime/chat-ctx.json, see electron/models.cjs `refreshChatPlan`); only when there
+# is no such record the recorded default (ollamaSettings.options.num_ctx in config/chat-tiers.json) cut down by the
+# RAM ladder, so a PC with little memory cannot be starved by the KV cache. electron/models.cjs reads the same rules
+# for the warm-up, so the warm-up and the chat ask for one window and Ollama never reloads the model.
 _CHAT_TIERS_PATH = Path(__file__).resolve().parents[1] / "config" / "chat-tiers.json"
 _DEFAULT_NUM_CTX = 8192
 _MIN_NUM_CTX = 2048
+_VOICE_MAX_NUM_CTX = 4096
+_MAX_NUM_CTX = 131072  # a tampered runtime/chat-ctx.json cannot ask Ollama for more than this
 _NUM_CTX_BY_RAM_GB = ((6.0, 2048), (9.0, 4096), (12.0, 6144))
 MAX_REPLY_TOKENS = 8192
 
@@ -122,13 +127,98 @@ def _configured_num_ctx() -> int:
         return _DEFAULT_NUM_CTX
 
 
-def ollama_num_ctx(ram_gb: float | None = None) -> int | None:
-    """The context window to send Ollama, or None when the owner turned it off with FRIDAY_OLLAMA_NUM_CTX=off."""
+def _ctx_tag_key(value) -> str:
+    text = value.strip().lower() if isinstance(value, str) else ""
+    return text[: -len(":latest")] if text.endswith(":latest") else text
+
+
+def _same_ctx_tag(a, b) -> bool:
+    x, y = _ctx_tag_key(a), _ctx_tag_key(b)
+    return bool(x) and bool(y) and (x == y or x.endswith("/" + y) or y.endswith("/" + x))
+
+
+def _read_json_object(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _planned_chat() -> dict | None:
+    """The chat plan the desktop recorded for this PC (<FRIDAY_ROOT>/runtime/chat-ctx.json), or None."""
+    root = os.environ.get("FRIDAY_ROOT", "").strip()
+    return _read_json_object(Path(root) / "runtime" / "chat-ctx.json") if root else None
+
+
+def _dict_at(source: dict, key: str) -> dict:
+    value = source.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _list_at(source: dict, key: str) -> list:
+    value = source.get(key)
+    return value if isinstance(value, list) else []
+
+
+def _whole(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def planned_num_ctx(model: str | None, chat: dict | None = None, tiers: dict | None = None) -> int | None:
+    """The window the setup plan assigns to ``model``, or None when it has none (the RAM ladder then stands).
+
+    The planned chat model gets ``numCtx`` (never above its native context). The fast voice twin gets its own small
+    window (2k to 4k), never the main model's. Any other model is not what the plan measured: the plan's window at most
+    up to the recorded default (8192), and never above its native context when the table knows it.
+    """
+    found = _planned_chat() if chat is None else chat
+    record: dict = found if isinstance(found, dict) else {}
+    planned = _whole(record.get("numCtx"))
+    if planned is None or planned < _MIN_NUM_CTX or not _ctx_tag_key(model):
+        return None
+    loaded = _read_json_object(_CHAT_TIERS_PATH) if tiers is None else tiers
+    cfg: dict = loaded if isinstance(loaded, dict) else {}
+
+    def native(tag) -> float:
+        for row in _list_at(cfg, "tiers"):
+            known = _whole(row.get("contextK")) if isinstance(row, dict) else None
+            if known and _same_ctx_tag(row.get("tag"), tag):
+                return known * 1024
+        return float("inf")
+
+    if _same_ctx_tag(record.get("tag"), model):
+        return int(min(planned, native(model), _MAX_NUM_CTX))
+    voice = _dict_at(record, "voice")
+    twins = [voice.get("tag"), *_voice_tags_of(cfg)]
+    if any(_same_ctx_tag(tag, model) for tag in twins):
+        rules = _dict_at(cfg, "rules")
+        own = _whole(voice.get("ctx")) or _whole(rules.get("voiceCtx")) or _VOICE_MAX_NUM_CTX
+        return max(_MIN_NUM_CTX, min(own, _VOICE_MAX_NUM_CTX))
+    return int(min(planned, _DEFAULT_NUM_CTX, native(model), _MAX_NUM_CTX))
+
+
+def _voice_tags_of(cfg: dict) -> list[str]:
+    """voice.tags plus every tag a tier row names as its voice twin (electron/setup-plan.cjs `voiceModelTags`)."""
+    tags: list[str] = []
+    tags.extend(t for t in _list_at(_dict_at(cfg, "voice"), "tags") if isinstance(t, str))
+    for row in _list_at(cfg, "tiers"):
+        twin = row.get("voice") if isinstance(row, dict) else None
+        if isinstance(twin, dict) and isinstance(twin.get("tag"), str):
+            tags.append(twin["tag"])
+    return tags
+
+
+def ollama_num_ctx(ram_gb: float | None = None, model: str | None = None) -> int | None:
+    """The context window to send Ollama for ``model``; None when FRIDAY_OLLAMA_NUM_CTX=off turned it off."""
     raw = os.environ.get("FRIDAY_OLLAMA_NUM_CTX", "").strip().lower()
     if raw in {"0", "off", "none", "false"}:
         return None
     if raw.isdigit() and int(raw) >= _MIN_NUM_CTX:
         return int(raw)
+    planned = planned_num_ctx(model)
+    if planned is not None:
+        return planned
     window = _configured_num_ctx()
     if ram_gb is not None:
         for ceiling, cap in _NUM_CTX_BY_RAM_GB:
@@ -573,6 +663,11 @@ class Model:
     status: str = "ready"
     options: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # An installed model whose tag is a voice tag is the fast one, whatever its size or name says.
+        if self.role == "brain" and is_voice_fast_model(self):
+            self.role = "fast"
+
     @property
     def wire_model(self) -> str:
         """The name the provider itself knows this model by.
@@ -639,6 +734,47 @@ def is_local_model(model: Model) -> bool:
         # The endpoint decides. A provider name alone never makes a remote host local.
         return privacy.is_loopback_endpoint(endpoint)
     return bool(model.provider and local_engines.is_local_kind(model.provider))
+
+
+_VOICE_TAGS_CACHE: tuple[Path, int, list[str]] | None = None
+
+
+def voice_fast_tags() -> list[str]:
+    """The small, fast voice models: ``voice.tags`` in config/chat-tiers.json, the one file the setup plan and the
+    desktop router read too. A missing, unreadable or malformed section means no fast model."""
+    global _VOICE_TAGS_CACHE
+    path = _CHAT_TIERS_PATH
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return []
+    cached = _VOICE_TAGS_CACHE
+    if cached is not None and cached[0] == path and cached[1] == stamp:
+        return list(cached[2])
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))["voice"]["tags"]
+    except (OSError, ValueError, KeyError, TypeError):
+        raw = None
+    tags = [t.strip().lower() for t in raw if isinstance(t, str) and t.strip()] if isinstance(raw, list) else []
+    _VOICE_TAGS_CACHE = (path, stamp, tags)
+    return list(tags)
+
+
+def is_voice_fast_model(model: Model, tags: list[str] | None = None) -> bool:
+    """True when a local model's tag is a voice tag (exact tag, with or without the engine prefix)."""
+    if not is_local_model(model):
+        return False
+    listed = voice_fast_tags() if tags is None else tags
+    wanted = [t.strip().lower() for t in listed if isinstance(t, str) and t.strip()]
+    if not wanted:
+        return False
+    options = model.options if isinstance(model.options, dict) else {}
+    names = (model.id, options.get("model"), options.get("providerModelId"))
+    for raw in names:
+        name = raw.strip().lower() if isinstance(raw, str) else ""
+        if name and any(name == tag or name.endswith((":" + tag, "/" + tag)) for tag in wanted):
+            return True
+    return False
 
 
 #: The registry id the desktop gives the bundled local model. Endpoint and key arrive at run time.
@@ -1312,6 +1448,26 @@ class ModelRouter:
         out["paid_unlocked"] = billing.paid_unlocked(self._billing)[0]
         return out
 
+    def pick_voice_fast(
+        self, meta: dict | None = None, *, surface: str | None = None, lane: str | None = None
+    ) -> Model | None:
+        """A quick spoken side line goes to the small fast model when one is installed and ready.
+
+        Only the voice surface in the quick lane, and only for a turn escalate() keeps on Core: a hard turn, a long
+        context or a heavy job never takes it. Local only, so both firewalls hold; it still goes through
+        ``_stream_one``. None means nothing changes: the usual pick follows.
+        """
+        if surface != "voice" or lane != "quick":
+            return None
+        # The intent counts even when no bigger model is open right now: a hard turn is not a quick line.
+        if escalate({**(meta if isinstance(meta, dict) else {}), "local_heavy": True}) != "core":
+            return None
+        pool = [m for m in self._models.values() if self._routable(m) and is_voice_fast_model(m)]
+        if not pool:
+            return None
+        pool.sort(key=lambda m: self.rank_key(m, "fast", "voice"), reverse=True)
+        return pool[0]
+
     def pick_escalated(self, meta: dict | None = None, *, surface: str | None = None) -> Model | None:
         """Runs before best_available: the model escalate() points at, or None to fall through.
 
@@ -1599,6 +1755,7 @@ class ModelRouter:
         escalation: dict | None = None,
         max_tokens: int | None = None,
         owner_text: str | list | None = None,
+        lane: str | None = None,
     ) -> AsyncIterator[dict]:
         """Fan out to the chosen models, or auto-select with ordered fallback."""
         # Passed down only when asked for, so a caller that never sets it sees the old call shape.
@@ -1632,9 +1789,12 @@ class ModelRouter:
         if auto:
             # Escalation first (Core, or up to a heavy local or cloud model); best_available is the fallthrough.
             # Both then go through _stream_one, which runs the privacy and billing guards on whatever is picked.
-            best = self.pick_escalated(
-                self._turn_meta(escalation, prompt, history, context, privacy_mode), surface=surface
-            ) or self.best_available("brain", surface=surface)
+            turn_meta = self._turn_meta(escalation, prompt, history, context, privacy_mode)
+            best = (
+                self.pick_voice_fast(turn_meta, surface=surface, lane=lane)
+                or self.pick_escalated(turn_meta, surface=surface)
+                or self.best_available("brain", surface=surface)
+            )
             if best:
                 if norm_mode == "local-only" and not is_local_model(best):
                     best = next(
@@ -2280,7 +2440,7 @@ class ModelRouter:
                 reasoning_control.ollama_fields(thinking, body)
             # One options dict: the placement hint, the context window and the reply cap are merged, never swapped.
             options = dict(gpu_options_for(hardware_hint))
-            window = ollama_num_ctx(total_ram_gb())
+            window = ollama_num_ctx(total_ram_gb(), model.wire_model)
             if window:
                 options["num_ctx"] = window
             if max_tokens:

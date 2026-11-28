@@ -398,7 +398,9 @@ describe("assistant standard rules", () => {
     expect(agents).toContain("Flow Studio canvas");
     expect(agents).toContain("Full autonomy");
     expect(agents).toContain("The look of the app stays");
-    expect(agents).toContain("Locked areas may be changed");
+    expect(agents).toContain("## Locked: the look of FRIDAY");
+    expect(agents).toMatch(/text, font, UI, design, graphics, color, logo/i);
+    expect(agents).not.toContain("Locked areas may be changed");
     expect(agents).toContain("## Assistant standard (voice and Auto mode)");
     expect(agents).toContain("unverified until the owner re-checks");
     expect(agents).toContain("copyleft (GPL or LGPL) voice component");

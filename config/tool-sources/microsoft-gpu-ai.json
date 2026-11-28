@@ -104,6 +104,7 @@
     "Windows Terminal": {
       "home": "machine",
       "homeReason": "MSIX package registered for the user through the Windows package installer.",
+      "singleSourceReason": "The package and its digest are assets of one GitHub release; there is no independent second host.",
       "sources": [
         { "kind": "github-api", "repo": "microsoft/terminal", "strip": "^v" },
         { "kind": "scoop-manifest", "name": "windows-terminal", "bucket": "Extras" },
@@ -115,7 +116,9 @@
       ],
       "download": {
         "urlTemplate": "https://github.com/microsoft/terminal/releases/download/v{version}/Microsoft.WindowsTerminal_{version}_8wekyb3d8bbwe.msixbundle",
-        "archive": "msix"
+        "archive": "msix",
+        "digestUrl": "https://api.github.com/repos/microsoft/terminal/releases/tags/v{version}",
+        "digestPath": "$.assets[?(@.name=='{file}')].digest"
       },
       "silentInstall": "winget install --id Microsoft.WindowsTerminal -e --silent --accept-package-agreements --accept-source-agreements",
       "notifyOnly": false,
@@ -124,6 +127,7 @@
     "Visual Studio Code": {
       "home": "machine",
       "homeReason": "The per-user installer needs no UAC; it is an IDE kept on the PC, not inside FRIDAY's folder.",
+      "singleSourceReason": "Microsoft's update service is the only publisher and redirects to its own download network; there is no independent second host.",
       "sources": [
         {
           "kind": "json-path",
@@ -150,6 +154,7 @@
     "Docker Desktop": {
       "home": "machine",
       "homeReason": "Needs administrator rights, WSL 2 or Hyper-V, services and a restart; it cannot be portable.",
+      "singleSourceReason": "Docker publishes the installer and its checksum list on one host only; there is no independent second host.",
       "sources": [
         {
           "kind": "html-regex",
@@ -191,7 +196,7 @@
     },
     "CUDA Toolkit": {
       "home": "machine",
-      "homeReason": "A multi-gigabyte NVIDIA installer that needs UAC and a matching display driver.",
+      "homeReason": "A multi-gigabyte NVIDIA installer that needs UAC and a matching display driver. NVIDIA publishes only an MD5 for the installer, so FRIDAY does not install it from here; it reports the version and winget or the pip runtime wheels do the install.",
       "sources": [
         {
           "kind": "html-regex",
@@ -201,10 +206,11 @@
         { "kind": "scoop-manifest", "name": "cuda", "bucket": "Main" }
       ],
       "download": {
+        "urlTemplate": "https://developer.download.nvidia.com/compute/cuda/{version}/local_installers/cuda_{version}_windows_x86_64.exe",
         "archive": "exe"
       },
-      "silentInstall": "cuda_<version>_windows.exe -s nvcc_<major.minor> cudart_<major.minor>",
-      "notifyOnly": false,
+      "silentInstall": "cuda_{version}_windows_x86_64.exe -s nvcc_{majorMinor} cudart_{majorMinor}",
+      "notifyOnly": true,
       "checked": "2026-11-27"
     },
     "Android Platform Tools (adb)": {
@@ -319,6 +325,7 @@
     "FRIDAY GitHub CLI": {
       "home": "friday-root",
       "homeReason": "The release ships a plain zip with bin/gh.exe, portable.",
+      "singleSourceReason": "The zip and its checksum list are assets of one GitHub release; there is no independent second host.",
       "sources": [
         { "kind": "github-api", "repo": "cli/cli", "strip": "^v" },
         { "kind": "github-atom", "repo": "cli/cli", "strip": "^v" },

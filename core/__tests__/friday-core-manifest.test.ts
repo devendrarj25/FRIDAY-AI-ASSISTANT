@@ -92,6 +92,34 @@ describe("friday-core.json pins", () => {
     expect(cpu.bytes).toBe(pinned.bytes);
   });
 
+  it("pins the b12619 builds: every id named, hashed, sized and tied to the tag", () => {
+    const rt = manifest.runtime;
+    expect(rt.tag).toBe("b12619");
+    const ids = rt.assets.map((a: { id: string }) => a.id);
+    expect(ids).toEqual([
+      "cpu-x64",
+      "cpu-arm64",
+      "cuda-12.4-x64",
+      "cudart-12.4-x64",
+      "cuda-13.5-x64",
+      "cudart-13.5-x64",
+      "vulkan-x64",
+      "rocm-10.0-x64",
+    ]);
+    for (const a of rt.assets) {
+      expect(a.bytes, a.id).toBeGreaterThan(10_000_000);
+      expect(a.sha256, a.id).toMatch(/^[a-f0-9]{64}$/);
+      expect(a.name, a.id).toMatch(
+        a.id.startsWith("cudart")
+          ? /^cudart-llama-bin-win-cuda-\d+\.\d+-x64\.zip$/
+          : new RegExp(`^llama-${rt.tag}-bin-win-`),
+      );
+    }
+    expect(rt.source).toContain(`/tag/${rt.tag}`);
+    expect(rt.urlPattern).toContain(`/download/${rt.tag}/`);
+    expect(rt.checkedAt >= rt.releasedAt).toBe(true);
+  });
+
   it("names the existing small chat tiers as the fallback, and records a licence for every variant", () => {
     const known = new Set(tiers.tiers.map((t: { id: string; tag: string }) => `${t.id}:${t.tag}`));
     for (const t of manifest.fallbackTiers) expect(known.has(`${t.tier}:${t.tag}`)).toBe(true);
@@ -245,10 +273,11 @@ describe("planAssets", () => {
     expect(tagOf("recall")).toMatch(/^friday-recall-weights-/);
   });
 
-  it("lists the release mirror before the upstream in the shipped manifest", () => {
+  it("lists the release mirror before the upstream, and ModelScope last, in the shipped manifest", () => {
     expect(manifest.mirrors.map((m: { id: string }) => m.id)).toEqual([
       "friday-models",
       "upstream",
+      "modelscope",
     ]);
     const plan = core.planAssets("/r", "e4b", {
       pack: {
@@ -260,8 +289,12 @@ describe("planAssets", () => {
     expect(plan.assets[0].sources.map((s: { id: string }) => s.id)).toEqual([
       "friday-models",
       "upstream",
+      "modelscope",
     ]);
-    expect(plan.assets[1].sources.map((s: { id: string }) => s.id)).toEqual(["upstream"]);
+    expect(plan.assets[1].sources.map((s: { id: string }) => s.id)).toEqual([
+      "upstream",
+      "modelscope",
+    ]);
     expect(plan.assets[0].dest).toBe(
       path.join("/r", "models", "friday-core", "friday-core-e4b.gguf"),
     );

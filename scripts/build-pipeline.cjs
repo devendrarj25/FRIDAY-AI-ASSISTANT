@@ -16,6 +16,7 @@ const path = require("node:path");
 const { spawnNpm, spawnDirect } = require("./win-spawn.cjs");
 const layout = require("../electron/runtime-layout.cjs");
 const stage = require("./stage-toolchain.cjs");
+const setupNotices = require("./setup-notices.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -737,24 +738,51 @@ const STEP_LABEL = {
   "scripts/release-engine.cjs verify": "verifying the version",
 };
 
-function runNode(script, args, root) {
+/**
+ * The scripts whose failure is a NOTICE, not a stop: the agent tools are extras, the build does not need them. A script
+ * here that exits non-zero is recorded (scripts/setup-notices.cjs) and the build goes on; every other script is a
+ * blocker (check-engines, npm ci, the Electron binary, the Python environment, init-runtime, the environment check,
+ * the packing steps) and a non-zero exit stops the build with its reason. FRIDAY_SETUP_STRICT=1 makes every notice a stop.
+ */
+const NOTICE_TIER = Object.freeze({
+  "scripts/prefetch-toolkit.cjs": Object.freeze({
+    id: "agent-toolkit",
+    kind: "tool",
+    label: "Agent toolkit",
+  }),
+});
+
+function runNode(script, args, root, deps = {}) {
   const { withActivityCommand } = require("./with-activity.cjs");
   const watched = (ACTIVITY_WATCH[script] || []).map((dir) => path.join(root, dir));
   const target = [path.join(root, script), ...args];
-  const result = SELF_DISPLAY.has(script)
-    ? spawnDirect(process.execPath, target, { cwd: root, stdio: "inherit" })
-    : withActivityCommand(
-        STEP_LABEL[`${script} ${args[0] || ""}`] ||
-          STEP_LABEL[script] ||
-          path.basename(script, ".cjs"),
-        watched,
-        process.execPath,
-        target,
-        { cwd: root },
-      );
-  if (result.status !== 0) {
-    throw new Error(`${script} failed (${result.status === null ? "no exit" : result.status})`);
+  const result = deps.run
+    ? deps.run(process.execPath, target, { cwd: root })
+    : SELF_DISPLAY.has(script)
+      ? spawnDirect(process.execPath, target, { cwd: root, stdio: "inherit" })
+      : withActivityCommand(
+          STEP_LABEL[`${script} ${args[0] || ""}`] ||
+            STEP_LABEL[script] ||
+            path.basename(script, ".cjs"),
+          watched,
+          process.execPath,
+          target,
+          { cwd: root },
+        );
+  if (result.status === 0) return { notice: false };
+  const notice = NOTICE_TIER[script];
+  if (notice && !setupNotices.isStrict(deps.env || process.env)) {
+    setupNotices.recordNotice(
+      {
+        ...notice,
+        reason: `${script} ended with exit ${result.status === null ? "no exit" : result.status}`,
+        repair: "npm run doctor",
+      },
+      { root: deps.noticeRoot, log: deps.log || console.log },
+    );
+    return { notice: true };
   }
+  throw new Error(`${script} failed (${result.status === null ? "no exit" : result.status})`);
 }
 
 /**
@@ -883,9 +911,11 @@ function signingRequested(options) {
 function runPhase(phase, options, root) {
   if (phase === "prepare-environment") {
     applyBuildCache(root);
-    // Everything the setup installs is needed, so each step below either completes or stops the
-    // build with the reason. The toolchain comes first: Git, PowerShell, FFmpeg, Tesseract and the
-    // Visual C++ runtime are checked (and installed from the official source when missing) before
+    // A step the build cannot run without (the toolchain, Node.js and npm, npm ci, the Electron binary, the Python
+    // environment, the runtime folders, the build tools) stops the build with the reason. What can wait (the agent
+    // tools, a model, a voice package, a Tesseract language) is a NOTICE: recorded, listed at the end of the build,
+    // finished later in FRIDAY > Install Manager / Models. The toolchain comes first: Git, PowerShell, FFmpeg,
+    // Tesseract and the Visual C++ runtime are checked (and installed from the official source when missing) before
     // npm ci, so a PC that has Node.js but not the rest is not discovered late.
     const stale = require("./explicit-python.cjs").dropStalePython(process.env);
     if (stale)
@@ -899,7 +929,7 @@ function runPhase(phase, options, root) {
     npmCi(root);
     runNode("scripts/ensure-electron.cjs", ["--quiet"], root);
     runNode("scripts/setup-python.cjs", [], root);
-    // The agent tools (search, Git, build tools, Docker, Sandbox, CUDA): a tool that cannot be installed stops the build.
+    // The agent tools (search, Git, build tools, Docker, Sandbox, CUDA): a tool that cannot be installed is a NOTICE.
     runNode("scripts/prefetch-toolkit.cjs", ["--no-update"], root);
     runNode("scripts/init-runtime.cjs", [], root);
     runNode("scripts/check-environment.cjs", ["--fix", "--summary"], root);
@@ -1205,6 +1235,14 @@ async function runPipeline(options, root = ROOT) {
     sign: signingRequested(options) ? "requested" : "unsigned",
     caller: options.caller,
     phases: [],
+    notices: [],
+  };
+  const openNotices = () => {
+    try {
+      return Array.isArray(options.notices) ? options.notices : setupNotices.readNotices();
+    } catch {
+      return [];
+    }
   };
   for (const [index, phase] of phases.entries()) {
     const started = Date.now();
@@ -1230,6 +1268,7 @@ async function runPipeline(options, root = ROOT) {
         detail: message,
       });
       report.ok = false;
+      report.notices = openNotices();
       fs.mkdirSync(path.dirname(options.report), { recursive: true });
       fs.writeFileSync(options.report, `${JSON.stringify(report, null, 2)}\n`);
       console.error(`[FRIDAY] ${phase} failed: ${message}`);
@@ -1237,6 +1276,7 @@ async function runPipeline(options, root = ROOT) {
     }
   }
   report.ok = true;
+  report.notices = openNotices();
   fs.mkdirSync(path.dirname(options.report), { recursive: true });
   fs.writeFileSync(options.report, `${JSON.stringify(report, null, 2)}\n`);
   return report;
@@ -1281,6 +1321,23 @@ function readySummary(options, report, root = ROOT, fsImpl = fs) {
     }
     lines.push(`${mark}${String(phase.name).padEnd(22)} ${wrapped[0] || ""}`);
     for (const more of wrapped.slice(1)) lines.push(`${" ".repeat(28)}${more}`);
+  }
+  // What could not be finished here: the same row shape (7 + 20 + 1 columns), never a failure of the build.
+  const notices = Array.isArray(report?.notices) ? report.notices : [];
+  for (const entry of notices) {
+    const text = String(entry?.reason || "")
+      .split(/\r?\n/)[0]
+      .slice(0, 400);
+    lines.push(
+      `NOTICE ${String(entry?.label || entry?.id || "")
+        .slice(0, 20)
+        .padEnd(20)} ${text}`,
+    );
+  }
+  if (notices.length) {
+    lines.push(
+      `${" ".repeat(28)}${notices.length} item(s) can be finished later in ${setupNotices.WHERE}.`,
+    );
   }
   if (report?.ok) {
     const release = path.join(root, "release");
@@ -1389,6 +1446,8 @@ module.exports = {
   assertNotSkipped,
   ensureToolchain,
   readySummary,
+  runNode,
+  NOTICE_TIER,
   placedRow,
   selectedPhases,
   commandsFor,

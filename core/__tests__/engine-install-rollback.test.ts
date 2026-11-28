@@ -6,7 +6,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -357,5 +365,165 @@ describe("ONNX Runtime install rollback", () => {
     const out = await install(fake);
     expect(out).toMatchObject({ ok: true, removed: ["onnxruntime-directml"] });
     expect(fake.variants()).toEqual(["onnxruntime-gpu"]);
+  });
+
+  it("both GPU sets are verified by the real-session health check, and a CPU fallback restores the CPU build", async () => {
+    for (const [bundleId, key, version] of [
+      ["ort-gpu", "onnxruntime-gpu", engines.PINNED_WHEELS["onnxruntime-gpu"].version],
+      ["ort-gpu-cu12", "onnxruntime-gpu-cu12", "1.26.0"],
+    ] as const) {
+      const bundle = engines.PIP_BUNDLES[bundleId];
+      const resolved = { [key]: ort(key) };
+      const plan = engines.planWheels(bundle, resolved, { pyTag: "cp312" });
+      const run = async (script: Script) => {
+        const fake = fakePip([["onnxruntime", "1.30.0"]], script);
+        const out = await engines.installPinnedWheels(dir, bundle, plan, python, {
+          exec: fake.exec,
+          freeze: fake.freeze,
+        });
+        return { fake, out };
+      };
+      const bad = await run({ failProbe: true }); // exit 3: ONNX Runtime listed the CPU first
+      expect(bad.out, bundleId).toMatchObject({ ok: false, rolledBack: true });
+      expect(bad.out.error).toMatch(/failed/);
+      expect(bad.fake.variants()).toEqual(["onnxruntime"]);
+      expect(bad.fake.installed.get("onnxruntime")).toBe("1.30.0");
+
+      const good = await run({});
+      expect(good.out, bundleId).toMatchObject({ ok: true, removed: ["onnxruntime"] });
+      expect(good.fake.variants()).toEqual(["onnxruntime-gpu"]);
+      expect(good.fake.installed.get("onnxruntime-gpu")).toBe(version);
+      const probes = good.fake.calls.filter((a) => a.includes("-c"));
+      expect(probes).toHaveLength(1);
+      expect(probes[0]![probes[0]!.indexOf("-c") + 1]).toBe(engines.GPU_HEALTH_PROBE);
+    }
+  });
+});
+
+describe("a wheel pip cannot fetch comes from a PyPI mirror, checked against its SHA-256 and size", () => {
+  let dir = "";
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "friday-ort-mirror-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const HOST = "https://files.pythonhosted.org/packages/ab/cd/ef0123/";
+  const body = "mirror-wheel-bytes";
+  /** The one-wheel plan of ort-gpu with fake bytes behind its digest and a pythonhosted address. */
+  const planWith = (bytes = body) => {
+    const bundle = engines.PIP_BUNDLES["ort-gpu"];
+    const plan = engines.planWheels(
+      bundle,
+      { "onnxruntime-gpu": ort("onnxruntime-gpu") },
+      { pyTag: "cp312" },
+    );
+    const w = plan.wheels[0];
+    const real = engines.PINNED_WHEELS["onnxruntime-gpu"].assets.find(
+      (a: { name: string }) => a.name === w.name,
+    );
+    w.sha256 = sha(bytes);
+    w.bytes = bytes.length;
+    w.url = `${HOST}${w.name}`;
+    plan.lines = [`onnxruntime-gpu==${w.version} --hash=sha256:${w.sha256}`];
+    expect(real).toBeTruthy();
+    return { bundle, plan };
+  };
+  const mirrorHosts = engines
+    .pypiMirrors()
+    .map((m: { packages: string }) => new URL(m.packages).host);
+
+  it("tries files.pythonhosted.org first, then each mirror in order, and installs the first file that verifies", async () => {
+    const { bundle, plan } = planWith();
+    const fake = fakePip([["onnxruntime", "1.30.0"]], { failDownloadOf: "onnxruntime-gpu" });
+    const asked: string[] = [];
+    const download = async (url: string, dest: string) => {
+      asked.push(url);
+      if (asked.length === 1) throw new Error("connection reset");
+      if (asked.length === 2) {
+        writeFileSync(dest, "wrong bytes"); // a mirror that serves other bytes
+        return;
+      }
+      writeFileSync(dest, body);
+    };
+    const out = await engines.installPinnedWheels(dir, bundle, plan, python, {
+      exec: fake.exec,
+      freeze: fake.freeze,
+      download,
+    });
+    expect(out).toMatchObject({ ok: true });
+    expect(asked[0]).toBe(plan.wheels[0].url);
+    const rest = asked.slice(1).map((u) => new URL(u).host);
+    expect(rest).toEqual(mirrorHosts.slice(0, 2));
+    for (const url of asked.slice(1)) expect(url.endsWith(`/${plan.wheels[0].name}`)).toBe(true);
+    expect(fake.installed.get("onnxruntime-gpu")).toBe(plan.wheels[0].version);
+    expect(fake.unhashedInstalls).toEqual([]);
+  });
+
+  it("refuses a file of the wrong size or digest from every road and leaves the installed copy untouched", async () => {
+    const { bundle, plan } = planWith();
+    const fake = fakePip([["onnxruntime", "1.30.0"]], { failDownloadOf: "onnxruntime-gpu" });
+    const asked: string[] = [];
+    const download = async (url: string, dest: string) => {
+      asked.push(url);
+      writeFileSync(dest, asked.length % 2 ? "x" : "y".repeat(body.length)); // short, then right size wrong digest
+    };
+    const out = await engines.installPinnedWheels(dir, bundle, plan, python, {
+      exec: fake.exec,
+      freeze: fake.freeze,
+      download,
+    });
+    expect(out).toMatchObject({ ok: false, rolledBack: false });
+    expect(out.error).toMatch(/pip refused the download/);
+    expect(out.error).toMatch(/untouched/);
+    expect(asked).toHaveLength(1 + mirrorHosts.length);
+    expect(fake.variants()).toEqual(["onnxruntime"]);
+    expect(fake.calls.some((a) => a.includes("uninstall"))).toBe(false);
+    expect(existsSync(path.join(dir, "runtime", "installers", "pip-pins"))).toBe(true);
+  });
+
+  it("a wheel with no pythonhosted address, or a pip download that worked, never asks a mirror", async () => {
+    const { bundle, plan } = planWith();
+    let asked = 0;
+    const download = async () => {
+      asked++;
+    };
+    const ok = fakePip([["onnxruntime", "1.30.0"]]);
+    const first = await engines.installPinnedWheels(dir, bundle, plan, python, {
+      exec: ok.exec,
+      freeze: ok.freeze,
+      download,
+    });
+    expect(first.ok).toBe(true);
+    const bare = planWith().plan;
+    delete bare.wheels[0].url;
+    const bad = fakePip([["onnxruntime", "1.30.0"]], { failDownloadOf: "onnxruntime-gpu" });
+    const second = await engines.installPinnedWheels(dir, bundle, bare, python, {
+      exec: bad.exec,
+      freeze: bad.freeze,
+      download,
+    });
+    expect(second.ok).toBe(false);
+    expect(asked).toBe(0);
+  });
+
+  it("builds the same mirror addresses as the wheelhouse stager, on the content-addressed path only", () => {
+    const wheelhouse = require_(path.join(root, "scripts/wheelhouse.cjs"));
+    const url = `${HOST}some_pkg-1.0-py3-none-win_amd64.whl`;
+    expect(engines.mirrorUrls(url)).toEqual(wheelhouse.mirrorUrls(url));
+    expect(engines.mirrorUrls(url)).toHaveLength(5);
+    expect(engines.mirrorUrls("https://example.com/packages/a/b.whl")).toEqual([]);
+    expect(engines.mirrorUrls("https://files.pythonhosted.org/nopath.whl")).toEqual([]);
+  });
+
+  it("the planned wheels carry the address of the file, for the mirror road", () => {
+    const bundle = engines.PIP_BUNDLES["ort-gpu"];
+    const answer = ort("onnxruntime-gpu");
+    const assets = answer.assets.map((a: { name: string }) => ({ ...a, url: `${HOST}${a.name}` }));
+    const plan = engines.planWheels(
+      bundle,
+      { "onnxruntime-gpu": { ...answer, assets } },
+      { pyTag: "cp312" },
+    );
+    expect(plan.wheels[0].url).toBe(`${HOST}${plan.wheels[0].name}`);
   });
 });

@@ -15,6 +15,7 @@ type Row = { id: string; ok: boolean; detail: string; installId?: string; requir
 type Registry = { catalogId: string; license?: string; firewallClass?: string; kind: string };
 const weights = req("../../electron/voice-weights.cjs") as {
   modelRegistry: () => Registry[];
+  fileSets: () => Array<{ id: string }>;
   manifestOf: (id: string) => { license?: string; firewallClass?: string } | null;
   pinnedJobs: () => Array<{
     id: string;
@@ -52,7 +53,11 @@ describe("voice asset manifest gate", () => {
 
   it("carries the same two fields into the installer catalog voice rows", () => {
     const rows = catalog.voiceRows("/friday");
-    expect(rows.length).toBe(weights.modelRegistry().length);
+    // every registry model plus every pinned file set (several single files, no repository)
+    expect(rows.length).toBe(weights.modelRegistry().length + weights.fileSets().length);
+    expect(rows.map((row) => row.id)).toEqual(
+      expect.arrayContaining(weights.fileSets().map((set) => `voice:${set.id}`)),
+    );
     for (const row of rows) {
       expect(String(row.license || "").trim(), `${row.id} licence`).not.toBe("");
       expect(weights.FIREWALL_CLASSES, `${row.id} firewall class`).toContain(row.firewallClass);

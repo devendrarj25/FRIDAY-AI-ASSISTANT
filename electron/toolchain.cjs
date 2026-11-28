@@ -678,6 +678,48 @@ async function detectCudaLibs() {
   };
 }
 
+/** What a pinned wheel bundle writes to disk: the cp312 (or platform-independent) wheel of each part, from its pins. */
+function bundleDiskBytes(bundleId) {
+  const bundle = engineInstall.PIP_BUNDLES[bundleId];
+  return bundle.parts.reduce((sum, part) => {
+    const pin = engineInstall.PINNED_WHEELS[part.pin || part.dist];
+    const asset = pin.assets.find((a) => /cp312|py3-none/.test(a.name)) || pin.assets[0];
+    return sum + (Number(asset?.bytes) || 0);
+  }, 0);
+}
+
+/** A wheel set counts as installed only when every part is in the environment (the CUDA 13 and CUDA 12 extras). */
+function detectWheelSet(dists, label, versionDist) {
+  return async () => {
+    const freeze = await loadPipFreeze(false);
+    const have = dists.filter((d) => freeze.get(d));
+    const all = have.length === dists.length;
+    return {
+      installed: all,
+      version: freeze.get(versionDist) || null,
+      path: all ? "site-packages" : null,
+      status: all ? "Ready" : "Missing",
+      ...(!all && have.length
+        ? { note: `only ${have.length} of ${dists.length} ${label} wheels are installed` }
+        : {}),
+    };
+  };
+}
+
+/** The CUDA 12 ONNX Runtime row is installed only when the pinned 1.26 wheel is the one in the environment. */
+async function detectOrtGpuCu12() {
+  const freeze = await loadPipFreeze(false);
+  const version = freeze.get("onnxruntime-gpu") || null;
+  const pinned = engineInstall.PINNED_WHEELS["onnxruntime-gpu-cu12"].version;
+  const ours = version === pinned;
+  return {
+    installed: ours,
+    version: ours ? version : null,
+    path: ours ? "site-packages" : null,
+    status: ours ? "Ready" : "Missing",
+  };
+}
+
 /* ------------------------------------------------------------------ catalog */
 /**
  * `id` matches the package name used by the renderer catalog so the UI can
@@ -816,12 +858,12 @@ const TOOLS = [
   T("FRIDAY Node", "Languages & Runtimes", {
     url: "https://nodejs.org/",
     source: "nodejs.org",
-    installerUrl: "https://nodejs.org/dist/v22.23.4/node-v22.23.4-win-x64.zip",
-    sha256: "cbc74b5e0982c9dbb41525fd8fb5dcd32fbee237863f7829072f4639a1ce5f20",
-    needBytes: 35604229,
-    archiveBin: "node-v22.23.4-win-x64/node.exe",
+    installerUrl: "https://nodejs.org/dist/v22.23.5/node-v22.23.5-win-x64.zip",
+    sha256: "4a191082e9706866830379d577d2cc8a50c776fcd9436a8d061b063ed0d9a0e3",
+    needBytes: 35630346,
+    archiveBin: "node-v22.23.5-win-x64/node.exe",
     manual:
-      "Portable Node.js 22.23.4 zip. MIT. Hashed from nodejs.org SHASUMS256.txt on 2026-11-09.",
+      "Portable Node.js 22.23.5 zip. MIT. Hashed from nodejs.org SHASUMS256.txt on 2026-11-28.",
   }),
   T("whisper.cpp", "Voice", {
     url: "https://github.com/ggml-org/whisper.cpp",
@@ -858,11 +900,11 @@ const TOOLS = [
     url: "https://git-scm.com/",
     source: "git-scm.com",
     installerUrl:
-      "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/MinGit-2.56.0.2-64-bit.zip",
-    sha256: "da35e72aa21c005a5a0d298cfbae110bc1609a815730ea0dde84b01a1b3cd3be",
-    needBytes: 39806486,
+      "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/MinGit-2.56.1-64-bit.zip",
+    sha256: "4a92850b6e917da4fd010669b614b55dccf5b0ec333a534cc4be4700dfefdafd",
+    needBytes: 39849768,
     archiveBin: "cmd/git.exe",
-    manual: "MinGit 2.56.0.2. GPL-2.0. Separate process. Hashed 2026-10-08.",
+    manual: "MinGit 2.56.1. GPL-2.0. Separate process. Hashed 2026-11-28.",
   }),
   T("Temurin JDK zip", "Languages & Runtimes", {
     url: "https://adoptium.net/",
@@ -959,7 +1001,7 @@ const TOOLS = [
   T("OpenJDK (Temurin)", "Languages & Runtimes", {
     cmd: "java",
     args: ["-version"],
-    winget: "EclipseAdoptium.Temurin.21.JDK",
+    winget: "EclipseAdoptium.Temurin.25.JDK",
     url: "https://adoptium.net/",
     source: "adoptium.net",
   }),
@@ -968,19 +1010,19 @@ const TOOLS = [
     args: ["-v"],
     url: "https://gradle.org/install/",
     source: "gradle.org",
-    // The official binary distribution, checked against the SHA-256 Gradle publishes beside it (read 2026-11-19).
-    installerUrl: "https://services.gradle.org/distributions/gradle-9.9.1-bin.zip",
-    sha256: "d8a18a7a841dd5df825d35a685fad6f2d7f12ac0c280e57b67c27b4a520ba228",
+    // The official binary distribution, checked against the SHA-256 Gradle publishes beside it (read 2026-11-28).
+    installerUrl: "https://services.gradle.org/distributions/gradle-9.9.3-bin.zip",
+    sha256: "4f2135b741f272acc88c168a52202a0a63fceee0cd61ee753da79694cd2b1e4b",
     // Gradle's second official host and its GitHub release carry the same file; the digest above holds for all three.
     installerMirrors: [
-      "https://downloads.gradle.org/distributions/gradle-9.9.1-bin.zip",
-      "https://github.com/gradle/gradle-distributions/releases/download/v9.9.1/gradle-9.9.1-bin.zip",
+      "https://downloads.gradle.org/distributions/gradle-9.9.3-bin.zip",
+      "https://github.com/gradle/gradle-distributions/releases/download/v9.9.3/gradle-9.9.3-bin.zip",
     ],
-    needBytes: 134921139,
-    archiveBin: "gradle-9.9.1/bin/gradle.bat",
-    pinVersion: "9.9.1",
+    needBytes: 134970743,
+    archiveBin: "gradle-9.9.3/bin/gradle.bat",
+    pinVersion: "9.9.3",
     manual:
-      "Gradle 9.9.1. Apache-2.0. Needs a JDK. Checksum from services.gradle.org on 2026-11-19.",
+      "Gradle 9.9.3. Apache-2.0. Needs a JDK. Checksum from downloads.gradle.org on 2026-11-28.",
   }),
   T(".NET SDK", "Languages & Runtimes", {
     cmd: "dotnet",
@@ -1022,7 +1064,7 @@ const TOOLS = [
   T("VS Build Tools", "Developer Tools", {
     cmd: "cl",
     args: [],
-    winget: "Microsoft.VisualStudio.2022.BuildTools",
+    winget: "Microsoft.VisualStudio.BuildTools",
     // The Visual Studio installer always needs an elevated process.
     elevate: true,
     noVersionProbe: true,
@@ -1467,7 +1509,7 @@ const TOOLS = [
   T("Windows SDK", "Developer Tools", {
     cmd: "signtool",
     args: [],
-    winget: "Microsoft.WindowsSDK.10.0.22621",
+    winget: "Microsoft.WindowsSDK.10.0.28000",
     url: "https://developer.microsoft.com/windows/downloads/windows-sdk/",
     source: "microsoft.com",
     noVersionProbe: true,
@@ -1493,14 +1535,14 @@ const TOOLS = [
   T("Ruby", "Languages & Runtimes", {
     cmd: "ruby",
     args: ["--version"],
-    winget: "RubyInstallerTeam.Ruby.3.4",
+    winget: "RubyInstallerTeam.Ruby.4.0",
     url: "https://rubyinstaller.org/",
     source: "rubyinstaller.org",
   }),
   T("PHP", "Languages & Runtimes", {
     cmd: "php",
     args: ["-v"],
-    winget: "PHP.PHP.8.4",
+    winget: "PHP.PHP.8.6",
     url: "https://windows.php.net/",
     source: "windows.php.net",
   }),
@@ -1725,6 +1767,50 @@ const TOOLS = [
     latest: { kind: "pypi", ref: "nvidia-cudnn-cu12" },
     requirements: { gpu: "nvidia", cudaMin: "12", computeCapMin: 7.5, diskBytes: 696300805 },
   }),
+  // The CUDA 13 stack (driver 580 or newer): the libraries ONNX Runtime 1.32.0 loads. The speech pair above stays CUDA 12.
+  T("CUDA 13 runtime libraries", "GPU Support", {
+    pipDist: "nvidia-cudnn-cu13",
+    pip: "nvidia-cudnn-cu13",
+    pipBundle: "cuda13-libs",
+    detect: detectWheelSet(
+      engineInstall.PIP_BUNDLES["cuda13-libs"].parts.map((p) => p.dist),
+      "CUDA 13",
+      "nvidia-cudnn-cu13",
+    ),
+    url: "https://pypi.org/project/nvidia-cudnn-cu13/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "nvidia-cudnn-cu13" },
+    manual:
+      "The CUDA 13 runtime, cuBLAS, cuFFT, cuRAND, NVRTC and cuDNN 9 that the CUDA 13 ONNX Runtime loads (NVIDIA proprietary licence) are fetched from PyPI on NVIDIA PCs with driver 580 or newer, checked against their SHA-256 and installed into the FRIDAY Python environment; never bundled.",
+    requirements: {
+      gpu: "nvidia",
+      cudaMin: "13",
+      computeCapMin: 7.5,
+      diskBytes: bundleDiskBytes("cuda13-libs"),
+    },
+  }),
+  // The CUDA 12.9 stack (driver 576 to 579): the extras the CUDA 12 ONNX Runtime needs next to the speech pair.
+  T("CUDA 12 runtime libraries for ONNX Runtime", "GPU Support", {
+    pipDist: "nvidia-cufft-cu12",
+    pip: "nvidia-cufft-cu12",
+    pipBundle: "cuda12-ort-libs",
+    detect: detectWheelSet(
+      engineInstall.PIP_BUNDLES["cuda12-ort-libs"].parts.map((p) => p.dist),
+      "CUDA 12",
+      "nvidia-cufft-cu12",
+    ),
+    url: "https://pypi.org/project/nvidia-cufft-cu12/",
+    source: "pypi.org",
+    latest: { kind: "pypi", ref: "nvidia-cufft-cu12" },
+    manual:
+      "The CUDA 12.9 runtime, cuFFT, cuRAND and NVRTC that the CUDA 12 ONNX Runtime needs next to cuBLAS 12 and cuDNN 9 (NVIDIA proprietary licence) are fetched from PyPI, checked against their SHA-256 and installed into the FRIDAY Python environment; never bundled.",
+    requirements: {
+      gpu: "nvidia",
+      cudaMin: "12",
+      computeCapMin: 7.5,
+      diskBytes: bundleDiskBytes("cuda12-ort-libs"),
+    },
+  }),
   T("ONNX Runtime (GPU)", "GPU Support", {
     pipDist: "onnxruntime-gpu",
     pip: "onnxruntime-gpu",
@@ -1733,13 +1819,34 @@ const TOOLS = [
     source: "pypi.org",
     latest: { kind: "pypi", ref: "onnxruntime-gpu" },
     manual:
-      "Only with the CUDA runtime libraries; never installed together with another ONNX Runtime.",
+      "The CUDA 13 build (driver 580 or newer); only with the CUDA 13 runtime libraries, and never installed together with another ONNX Runtime.",
+    requirements: {
+      gpu: "nvidia",
+      cudaMin: "13",
+      cudaLibs: true,
+      computeCapMin: 7.5,
+      diskBytes: bundleDiskBytes("ort-gpu"),
+      alternative: "ONNX Runtime (DirectML)",
+    },
+  }),
+  T("ONNX Runtime (GPU, CUDA 12)", "GPU Support", {
+    pipDist: "onnxruntime-gpu",
+    pip: "onnxruntime-gpu",
+    pipBundle: "ort-gpu-cu12",
+    detect: detectOrtGpuCu12,
+    url: "https://onnxruntime.ai/",
+    source: "pypi.org",
+    // The CUDA 12 build is not on PyPI under a newer version: its pinned wheels are the newest this row offers.
+    latest: { kind: "pinned", ref: engineInstall.PINNED_WHEELS["onnxruntime-gpu-cu12"].version },
+    pinnedLatest: { version: engineInstall.PINNED_WHEELS["onnxruntime-gpu-cu12"].version },
+    manual:
+      "ONNX Runtime 1.26.0 for the CUDA 12.9 libraries (driver 576 to 579), from its pinned wheels; never installed together with another ONNX Runtime.",
     requirements: {
       gpu: "nvidia",
       cudaMin: "12",
       cudaLibs: true,
       computeCapMin: 7.5,
-      diskBytes: 157765830,
+      diskBytes: bundleDiskBytes("ort-gpu-cu12"),
       alternative: "ONNX Runtime (DirectML)",
     },
   }),
@@ -2334,7 +2441,7 @@ const TOOLS = [
     source: "developer.android.com",
   }),
   T("Visual Studio", "Developer Tools", {
-    winget: "Microsoft.VisualStudio.2022.Community",
+    winget: "Microsoft.VisualStudio.Community",
     url: "https://visualstudio.microsoft.com/downloads/",
     source: "visualstudio.microsoft.com",
   }),
@@ -2994,6 +3101,7 @@ async function jsonFrom(url, headers = {}) {
 
 /** One registry lookup, each with a second official host when the first does not answer. */
 async function latestFromSpec(spec) {
+  if (spec.kind === "pinned") return spec.ref || null;
   if (spec.kind === "npm") {
     const hosts = ["https://registry.npmjs.org", "https://registry.npmmirror.com"];
     for (const host of hosts) {
@@ -3609,14 +3717,18 @@ async function vendorFeedInstall(tool) {
   }
 }
 
-/** The tool with the feed's installer, digest and arguments in place of any pin. */
+/**
+ * The tool with the feed's installer, digest and arguments in place of any pin. A mirror written for the pin serves
+ * the pinned file, so it is kept only when the feed names the same digest; a newer release has its own mirrors.
+ */
 function applyFeed(tool, feed) {
+  const samePin = !!tool.sha256 && tool.sha256 === feed.install.sha256;
   return {
     ...tool,
     installerUrl: feed.install.url,
     sha256: feed.install.sha256,
     needBytes: feed.bytes || 0,
-    installerMirrors: [...(feed.mirrors || []), ...(tool.installerMirrors || [])],
+    installerMirrors: [...(feed.mirrors || []), ...(samePin ? tool.installerMirrors || [] : [])],
     ...(feed.installerArgs ? { installerArgs: feed.installerArgs } : {}),
     ...(feed.bin ? { feedBin: feed.bin, archiveBin: feed.bin } : {}),
     releaseTag: feed.version,
@@ -4454,7 +4566,7 @@ function runJob({ id, action, root }, emit) {
           ...tool,
           installerUrl: alt.url,
           sha256: alt.sha256 || "",
-          installerMirrors: [],
+          installerMirrors: alt.mirrors || [],
           needBytes: 0,
           releaseTag: alt.version,
           allowUnsigned: alt.allowUnsigned === true,

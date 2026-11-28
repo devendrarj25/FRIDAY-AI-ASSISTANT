@@ -25,6 +25,19 @@
       "id": "upstream",
       "kind": "upstream",
       "urlPattern": "https://huggingface.co/<repo>/resolve/<revision>/<file>"
+    },
+    {
+      "id": "modelscope",
+      "kind": "modelscope",
+      "urlPattern": "https://modelscope.cn/api/v1/models/<repo>/repo?Revision=master&FilePath=<file>",
+      "match": "sha256",
+      "checkedAt": "2026-11-28",
+      "repos": [
+        "ggml-org/gemma-4-E4B-it-GGUF",
+        "ggml-org/gemma-4-E2B-it-GGUF",
+        "ggml-org/Qwen3.5-4B-GGUF",
+        "ggml-org/bge-m3-Q8_0-GGUF"
+      ]
     }
   ],
   "licences": {
@@ -196,43 +209,67 @@
   ],
   "runtime": {
     "repo": "ggml-org/llama.cpp",
-    "tag": "b12230",
-    "releasedAt": "2026-11-09",
-    "checkedAt": "2026-11-27",
-    "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b12230",
-    "urlPattern": "https://github.com/ggml-org/llama.cpp/releases/download/b12230/<name>",
+    "tag": "b12619",
+    "releasedAt": "2026-11-21",
+    "checkedAt": "2026-11-28",
+    "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b12619",
+    "urlPattern": "https://github.com/ggml-org/llama.cpp/releases/download/b12619/<name>",
     "assets": [
       {
         "id": "cpu-x64",
-        "name": "llama-b12230-bin-win-cpu-x64.zip",
-        "bytes": 24898046,
-        "sha256": "a787fb94d48e6d93aa5809133f5f984360a5713b20d2f9ee1ccc4b22cd9cce56"
+        "name": "llama-b12619-bin-win-cpu-x64.zip",
+        "bytes": 25027471,
+        "sha256": "45ffc16fc62e47f1a82a12dad0d88051660b571eaaae69ee3e981733b9563636"
+      },
+      {
+        "id": "cpu-arm64",
+        "name": "llama-b12619-bin-win-cpu-arm64.zip",
+        "bytes": 13146842,
+        "sha256": "c9344e7de3c757465ed803b178d50137fe7d1a80951a255fe8928c6065202ec9"
       },
       {
         "id": "cuda-12.4-x64",
-        "name": "llama-b12230-bin-win-cuda-12.4-x64.zip",
-        "bytes": null,
-        "sha256": "29180e373c153ca59e1837872561eeb800f5b60f1e6375653f8b7d3df57ab885"
+        "name": "llama-b12619-bin-win-cuda-12.4-x64.zip",
+        "bytes": 357966040,
+        "sha256": "fd059e19963adf4c31880dc90c3784dc22d74c409c860d97dc172a26bfb5e970"
       },
       {
         "id": "cudart-12.4-x64",
         "name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
-        "bytes": null,
+        "bytes": 391443627,
         "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
       },
       {
+        "id": "cuda-13.5-x64",
+        "name": "llama-b12619-bin-win-cuda-13.5-x64.zip",
+        "bytes": 225641998,
+        "sha256": "6cf95ba58de883683d941e9ce8509d1e6366f3b0b96855eefcb699ae63e7ed53"
+      },
+      {
+        "id": "cudart-13.5-x64",
+        "name": "cudart-llama-bin-win-cuda-13.5-x64.zip",
+        "bytes": 426314199,
+        "sha256": "c2bf4cc202bfbaaa7a0b75f5082457c3811326947bb216059b72839d844e9cba"
+      },
+      {
         "id": "vulkan-x64",
-        "name": "llama-b12230-bin-win-vulkan-x64.zip",
-        "bytes": null,
-        "sha256": "1ae697ed5c08d6f260add738e222f3bce525d79836286575d6a335972d772076"
+        "name": "llama-b12619-bin-win-vulkan-x64.zip",
+        "bytes": 38863716,
+        "sha256": "175d9013769997ab9145cc932f0dd2d89ab3cb6123aecbd83a9645e1cf5e5b9d"
+      },
+      {
+        "id": "rocm-10.0-x64",
+        "name": "llama-b12619-bin-win-rocm-10.0-x64.zip",
+        "bytes": 284387527,
+        "sha256": "d6d3b7a2e7558a14485ab7a710514cf0bf6264abcb3a21e1433cdc11f26ef54c"
       }
     ]
   },
   "unverified": [
-    "runtime bytes of the CUDA, cudart and Vulkan zips (the release page shows megabytes only; the sha256 values were read twice from the release asset list)",
     "the memory figures (kvGbAt8k, overheadGb, windowsGb, appReserveGb) are estimates, not measured on the owner's PC",
-    "Gemma 4 audio input and the multi-token draft files at llama.cpp tag b12230",
+    "Gemma 4 audio input and the multi-token draft files at llama.cpp tag b12619",
     "Qwen3.5 projector support in the pinned llama.cpp tag",
+    "the cuda-13.5, rocm-10.0 and cpu-arm64 builds were hashed on Linux only; none has been started on a Windows PC",
     "no Core file is in the FRIDAY Models release yet, so the upstream source is the only live road"
   ]
 }

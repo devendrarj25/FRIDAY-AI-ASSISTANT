@@ -16,7 +16,7 @@
  *
  * Usage:
  *   node scripts/build-friday-runtime-llm.cjs --work <empty-or-new-folder> --fixture <tiny.gguf>
- *        [--tag b12230] [--variant friday-native|friday-portable] [--toolchain vs2022|ninja]
+ *        [--tag b12619] [--variant friday-native|friday-portable] [--toolchain vs2022|ninja]
  *        [--timebox-min 120] [--dry-run]
  *
  * Exit code 0 = built, smoke test passed, record written (or --dry-run printed the plan).
@@ -37,7 +37,7 @@ const UPSTREAM = "https://github.com/ggml-org/llama.cpp.git";
 const TARGET = "llama-server";
 const OWN_EXE = `${NAME}.exe`;
 /** The release this build is pinned to: the same tag as the official engine in config/local-runners.json. */
-const PINNED_TAG = "b12230";
+const PINNED_TAG = "b12619";
 const RELEASE_TAG = /^b\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;

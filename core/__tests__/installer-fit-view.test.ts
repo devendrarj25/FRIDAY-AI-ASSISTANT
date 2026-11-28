@@ -126,10 +126,14 @@ describe("an NVIDIA 16 GB PC", () => {
   });
   const groups = groupRows(catalog, { now: FIXED_NOW });
 
-  it("has nothing it cannot run, and names the one row that works with a limit", () => {
-    expect(group(groups, "unsupported").rows).toEqual([]);
+  it("cannot run only the CUDA 13 rows (driver 576.80 is CUDA 12.9) and names the one row that works with a limit", () => {
+    expect(
+      group(groups, "unsupported")
+        .rows.map((r) => r.id)
+        .sort(),
+    ).toEqual(["CUDA 13 runtime libraries", "ONNX Runtime (GPU)"]);
     const limited = group(groups, "limited").rows;
-    expect(limited.map((r) => r.id)).toEqual(["ONNX Runtime (GPU)"]);
+    expect(limited.map((r) => r.id)).toEqual(["ONNX Runtime (GPU, CUDA 12)"]);
     expect(limited[0]?.reasons[0]?.text).toMatch(
       /not installed; install the CUDA runtime libraries/,
     );
@@ -152,8 +156,11 @@ describe("an NVIDIA 16 GB PC", () => {
 
   it("is a different list from the no-GPU PC for the same rows", () => {
     const noGpu = realCatalog(NO_GPU_PC);
-    expect(catalog.split.unsupported.length).toBe(0);
-    expect(noGpu.split.unsupported.length).toBeGreaterThan(0);
+    expect([...catalog.split.unsupported].sort()).toEqual([
+      "CUDA 13 runtime libraries",
+      "ONNX Runtime (GPU)",
+    ]);
+    expect(noGpu.split.unsupported.length).toBeGreaterThan(catalog.split.unsupported.length);
     expect(catalog.rows.length).toBe(noGpu.rows.length);
   });
 });

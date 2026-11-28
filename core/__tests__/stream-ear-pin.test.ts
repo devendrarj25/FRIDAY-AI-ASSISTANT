@@ -97,6 +97,24 @@ describe("the pin is the revision and bytes read from the Hugging Face tree API"
     expect(pin.license).toBe("NVIDIA-Open-Model-License");
   });
 
+  it("records the upstream OpenMDW-1.1 card at its revision while the conservative class stays", () => {
+    const rec = (
+      pin as unknown as {
+        licenseRecord: {
+          redistribution: string;
+          upstream: { id: string; revision: string; checkedAt: string; source: string };
+        };
+      }
+    ).licenseRecord;
+    expect(rec.upstream.id).toBe("OpenMDW-1.1");
+    expect(rec.upstream.revision).toBe("ea30d66debe3740a08b573244286791d423d6b3e");
+    expect(rec.upstream.checkedAt).toBe("2026-11-28");
+    expect(rec.upstream.source).toBe(
+      "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
+    );
+    expect(rec.redistribution).toBe("attribution");
+  });
+
   it("lists exactly the eight files, each with the SHA-256 and size of the pinned revision", () => {
     expect(pin.files).toEqual({
       "config.json": {

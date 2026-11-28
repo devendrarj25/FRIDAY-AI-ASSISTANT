@@ -104,7 +104,10 @@ describe("the wiring that only runs on Windows is in the source", () => {
 
   it("ends with exitCode, not process.exit: a long table must not be cut off in a pipe", () => {
     expect(src).not.toMatch(/process\.exit\(/);
-    expect(src).toContain("process.exitCode = 1;");
+    // One verdict (probes.environmentExitCode): 1 for a blocker only, or a notice under FRIDAY_SETUP_STRICT=1.
+    expect(src).toContain("probes.environmentExitCode(checks, { strict, noticesFail })");
+    expect(src.match(/process\.exitCode = verdict;/g)).toHaveLength(3);
+    expect(src).not.toContain("process.exitCode = 1;");
   });
 
   it("asks tesseract for its languages and requires eng, with hin as a language pack", () => {

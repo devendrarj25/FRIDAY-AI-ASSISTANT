@@ -28,7 +28,13 @@
       ],
       "download": {
         "urlTemplate": "https://github.com/git-for-windows/git/releases/download/v{version}.windows.1/Git-{version}-64-bit.exe",
-        "archive": "exe"
+        "archive": "exe",
+        "digestUrl": "https://api.github.com/repos/git-for-windows/git/releases/tags/v{version}.windows.1",
+        "digestPath": "$.assets[?(@.name=='{file}')].digest",
+        "mirrors": [
+          "https://mirrors.huaweicloud.com/git-for-windows/v{version}.windows.1/Git-{version}-64-bit.exe",
+          "https://registry.npmmirror.com/-/binary/git-for-windows/v{version}.windows.1/Git-{version}-64-bit.exe"
+        ]
       },
       "silentInstall": "Git-{version}-64-bit.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
       "notifyOnly": false,
@@ -88,7 +94,10 @@
       "download": {
         "urlTemplate": "https://services.gradle.org/distributions/gradle-{version}-bin.zip",
         "archive": "zip",
-        "digestUrl": "https://services.gradle.org/distributions/gradle-{version}-bin.zip.sha256"
+        "digestUrl": "https://services.gradle.org/distributions/gradle-{version}-bin.zip.sha256",
+        "mirrors": [
+          "https://github.com/gradle/gradle-distributions/releases/download/v{version}/gradle-{version}-bin.zip"
+        ]
       },
       "notifyOnly": false,
       "checked": "2026-11-27"
@@ -116,7 +125,11 @@
         "urlTemplate": "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/{version}/apache-maven-{version}-bin.zip",
         "archive": "zip",
         "digestUrl": "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/{version}/apache-maven-{version}-bin.zip.sha512",
-        "digestAlgo": "sha512"
+        "digestAlgo": "sha512",
+        "mirrors": [
+          "https://dlcdn.apache.org/maven/maven-{major}/{version}/binaries/apache-maven-{version}-bin.zip",
+          "https://archive.apache.org/dist/maven/maven-{major}/{version}/binaries/apache-maven-{version}-bin.zip"
+        ]
       },
       "notifyOnly": false,
       "checked": "2026-11-27"
@@ -223,6 +236,7 @@
     "NSIS": {
       "home": "machine",
       "homeReason": "The zip has no SHA-256 from any source, so the setup exe (SHA-256 published by the vendor) is used; its installer asks for UAC.",
+      "singleSourceReason": "SourceForge is the only publisher and itself redirects each download to a rotating set of its own mirror hosts.",
       "sources": [
         {
           "kind": "html-regex",
@@ -467,14 +481,17 @@
       "download": {
         "urlTemplate": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-{version}-essentials_build.zip",
         "archive": "zip",
-        "digestUrl": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-{version}-essentials_build.zip.sha256"
+        "digestUrl": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-{version}-essentials_build.zip.sha256",
+        "mirrors": [
+          "https://github.com/GyanD/codexffmpeg/releases/download/{version}/ffmpeg-{version}-essentials_build.zip"
+        ]
       },
       "notifyOnly": false,
       "checked": "2026-11-27"
     },
     "whisper.cpp": {
       "home": "friday-root",
-      "homeReason": "The release zip holds whisper-cli.exe and runs from any folder.",
+      "homeReason": "The release zip holds whisper-cli.exe and runs from any folder. Upstream publishes no Windows zip after v1.9.2 (v1.9.3 to v1.9.6 answer 404 for every Windows asset name), so the row only reports a newer version; the pinned v1.9.2 zip stays the install source.",
       "sources": [
         {
           "kind": "github-api",
@@ -492,10 +509,9 @@
         }
       ],
       "download": {
-        "urlTemplate": "https://github.com/ggml-org/whisper.cpp/releases/download/v{version}/whisper-bin-x64.zip",
         "archive": "zip"
       },
-      "notifyOnly": false,
+      "notifyOnly": true,
       "checked": "2026-11-27"
     },
     "ggml-base": {

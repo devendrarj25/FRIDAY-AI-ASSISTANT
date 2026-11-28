@@ -186,9 +186,9 @@ describe("the chat model follows the plan, not a fixed model", () => {
   });
 
   it("offers a better model without pulling it, and keeps the installed one in use", async () => {
-    const r = await run(facts(32, 24), ["qwen3:4b"]);
+    const r = await run(facts(8, 5), ["qwen3:1.7b"]);
     expect(r.pulled).toEqual([]);
-    expect(r.text).toMatch(/qwen3:4b is already installed and stays the chat model/);
+    expect(r.text).toMatch(/qwen3:1\.7b is already installed and stays the chat model/);
     expect(r.text).toMatch(/is a better fit for this PC; pull it from the Models page/);
     expect(prefetch.failureReport(r.rows)).toEqual([]);
   });
@@ -206,10 +206,18 @@ describe("the chat model follows the plan, not a fixed model", () => {
   });
 
   it("a PC with no room for any model says so and fails nothing", async () => {
-    const r = await run(facts(4, 2.5));
+    const r = await run(facts(3, 2));
     expect(r.pulled).toEqual([]);
     expect(r.text).toMatch(/no chat model is planned for this PC/);
     expect(prefetch.failureReport(r.rows)).toEqual([]);
+  });
+
+  it("a 4 GB PC is planned the floor model, whatever is free right now", async () => {
+    for (const free of [1.5, 3]) {
+      const r = await run(facts(4, free));
+      expect(r.pulled).toEqual(["qwen3.5:0.8b"]);
+      expect(prefetch.failureReport(r.rows)).toEqual([]);
+    }
   });
 
   it("a pull that fails is a real failure for the plan's tag, and the light GGUF fallback only runs where it fits", async () => {
@@ -218,12 +226,26 @@ describe("the chat model follows the plan, not a fixed model", () => {
       error: "no route",
     }));
     expect(roomy.fetched).toContain("qwen3-4b");
-    const tight = await run(facts(8, 3), [], { FRIDAY_PREFETCH_CHAT: "1" }, () => ({
+    const tight = await run(facts(4, 3), [], { FRIDAY_PREFETCH_CHAT: "1" }, () => ({
       ok: false,
       error: "no route",
     }));
     expect(tight.fetched).not.toContain("qwen3-4b");
     expect(prefetch.failureReport(tight.rows).join("\n")).toContain("qwen3.5:0.8b: no route");
+  });
+
+  it("the light GGUF fallback gate reads the plan's total-based usable memory, not what is free right now", async () => {
+    const fail = () => ({ ok: false, error: "no route" });
+    const env = { FRIDAY_PREFETCH_CHAT: "1" };
+    const busy = await run(facts(16, 1), [], env, fail);
+    const idle = await run(facts(16, 12), [], env, fail);
+    // The same PC with a busy or an idle memory gets the same answer: the plan is total-based.
+    expect(busy.fetched.includes("qwen3-4b")).toBe(idle.fetched.includes("qwen3-4b"));
+    expect(idle.fetched).toContain("qwen3-4b");
+    const src = read("scripts/prefetch-models.cjs");
+    expect(src).toMatch(
+      /planned\.action === "pull" && Number\(planned\.memory\?\.usableGb\) >= ggufNeedGb/,
+    );
   });
 
   it("re-reads what Ollama holds once it answers, so a model it already has is never pulled over", async () => {
@@ -374,10 +396,12 @@ describe("speech sizes and packages come from the same plan the Doctor reads", (
     const src = read("scripts/setup-python.cjs");
     const at = src.indexOf("function installGpuSpeechLibraries()");
     const body = src.slice(at, src.indexOf("installGpuSpeechLibraries();", at));
-    expect(body).toMatch(/readPlanSync\(process\.env\)/);
+    // The plan is read once (thisPcPlan memoises readPlanSync) and shared with the GPU ONNX Runtime step.
+    expect(src).toMatch(/function thisPcPlan\(\)[\s\S]{0,200}readPlanSync\(process\.env\)/);
+    expect(body).toMatch(/thisPcPlan\(\)/);
     expect(body).toMatch(/libs\?\.action !== "install" && libs\?\.action !== "defer"/);
-    expect(body.indexOf("readPlanSync")).toBeGreaterThan(body.indexOf("nvidia-smi"));
-    expect(body.indexOf("readPlanSync")).toBeLessThan(body.indexOf("installWithMethods"));
+    expect(body.indexOf("thisPcPlan()")).toBeGreaterThan(body.indexOf("nvidia-smi"));
+    expect(body.indexOf("thisPcPlan()")).toBeLessThan(body.indexOf("installWithMethods"));
   });
 });
 

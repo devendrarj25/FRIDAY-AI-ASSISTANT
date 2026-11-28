@@ -265,6 +265,7 @@ describe("the catalog's manifest fields are the pinned ones", () => {
   const registry = require_("../../electron/voice-weights.cjs") as {
     modelRegistry: () => { catalogId: string }[];
     manifestOf: (id: string) => Record<string, unknown> | null;
+    fileSets: () => { id: string; diskBytes: number }[];
   };
 
   it("every pinned voice model has the same fields and numbers on both sides, and the disk bytes are the pins' sum", () => {
@@ -281,7 +282,14 @@ describe("the catalog's manifest fields are the pinned ones", () => {
         "wake-embed",
       ]),
     );
-    expect(Object.keys(voiceModelFacts).sort()).toEqual([...ids].sort());
+    // A file set (several single files from the publisher's host, no repository to pin) is a catalog model of its own
+    // beside the registry: the same facts table carries it, its disk bytes are the pinned files' sum.
+    const sets = registry.fileSets();
+    expect(sets.map((set) => set.id)).toEqual(["moonshine-en"]);
+    expect(Object.keys(voiceModelFacts).sort()).toEqual(
+      [...ids, ...sets.map((set) => set.id)].sort(),
+    );
+    for (const set of sets) expect(voiceModelFacts[set.id]?.diskBytes, set.id).toBe(set.diskBytes);
     for (const id of ids) {
       const node = registry.manifestOf(id)!;
       const web = voiceModelFacts[id]!;

@@ -69,7 +69,7 @@ const realFetch = globalThis.fetch;
 let tmp = "";
 
 beforeAll(() => {
-  undici.fetch = async (url: string) => {
+  undici.fetch = async (url: string, init?: { method?: string }) => {
     if (feedDown) throw new Error("network down");
     if (
       String(url).startsWith("https://api.github.com/repos/git-for-windows/git/releases/latest")
@@ -93,7 +93,11 @@ beforeAll(() => {
         text: async () => JSON.stringify(body),
       };
     }
-    return { ok: false, status: 404, url: "", json: async () => ({}), text: async () => "" };
+    // The download itself goes through fetchCompat, which prefers a replaced undici fetch: hand it to the stub below.
+    if (String(url).startsWith("https://api.github.com/")) {
+      return { ok: false, status: 404, url: "", json: async () => ({}), text: async () => "" };
+    }
+    return globalThis.fetch(url, init);
   };
   // The download itself: the vendor URL redirects to a CDN host, then serves the bytes.
   globalThis.fetch = (async (url: string, init: { method?: string } = {}) => {

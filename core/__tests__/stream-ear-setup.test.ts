@@ -251,7 +251,10 @@ describe("the setup plan and the Doctor read the same decision", () => {
       /planned && job\.optional && job\.fallback\s*\?\s*`missing \(optional; \$\{job\.fallback\} stay in use until it is fetched\)`/,
     );
     expect(src).toMatch(/found: `skipped on this PC: \$\{reason\}`/);
-    expect(src).toMatch(/c\.ok \? "PASS" : c\.required \? "MISSING" : "SKIPPED"/);
+    // MISSING is for a blocker only; a required row that is not a blocker is a NOTICE; a row that does not apply stays SKIPPED.
+    expect(src).toMatch(
+      /c\.ok\s*\?\s*"PASS"\s*:\s*c\.required\s*\?\s*c\.blocker === true\s*\?\s*"MISSING"\s*:\s*"NOTICE"\s*:\s*c\.warn\s*\?\s*"WARN"\s*:\s*"SKIPPED"/,
+    );
   });
 
   it("the synthetic plan the Doctor rebuilds from the required set yields the same job", () => {

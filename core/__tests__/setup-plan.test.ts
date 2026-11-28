@@ -66,13 +66,13 @@ const nvidia = (vramGb: number, freeGb: number, extra: Facts = {}): Facts =>
         name: "Test NVIDIA card",
         vramGb,
         vramCapped: false,
-        driver: "560.94",
+        driver: "576.80",
         integrated: false,
         computeCap: 7.5,
       },
     ],
     cudaReady: true,
-    driverVersion: "560.94",
+    driverVersion: "576.80",
     vulkan: true,
     cuda: { driverCuda: "12.6", cublas12: false, cudnn9: false, runtimeFilesFound: false },
     ...extra,
@@ -81,11 +81,21 @@ const noGpu = (ramGb: number, ramFreeGb: number, extra: Facts = {}) =>
   base({ ramGb, ramFreeGb, ...extra });
 
 describe("setup plan: chat model by memory", () => {
-  it("no GPU, 4 GB of RAM: no local model fits, and the plan says so", () => {
+  it("no GPU, 4 GB of RAM: the floor model qwen3.5:0.8b fits; 3 GB or less still gets none, and says so", () => {
     const p = plan.buildSetupPlan(noGpu(4, 2.5), deps());
-    expect(p.chat.tag).toBeNull();
-    expect(p.chat.action).toBe("none");
-    expect(p.chat.reason).toMatch(/no local chat model fits/);
+    expect(p.chat.tag).toBe("qwen3.5:0.8b");
+    expect(p.chat.device).toBe("cpu");
+    expect(p.chat.action).toBe("pull");
+    expect(p.chat.needs.memoryGb).toBeLessThanOrEqual(p.chat.memory.usableGb);
+    // 5 and 6 GB keep the floor model too, with a window that leaves the weights room.
+    for (const ram of [5, 6])
+      expect(plan.chatModelFor(noGpu(ram, ram - 2)).tag).toBe("qwen3.5:0.8b");
+    for (const ram of [3, 2.5, 2]) {
+      const none = plan.buildSetupPlan(noGpu(ram, ram - 1), deps());
+      expect(none.chat.tag).toBeNull();
+      expect(none.chat.action).toBe("none");
+      expect(none.chat.reason).toMatch(/no local chat model fits/);
+    }
   });
 
   it("no GPU, 8 GB of RAM: qwen3.5:2b on the CPU, the CPU llama.cpp zip, no GPU packages", () => {
@@ -99,30 +109,62 @@ describe("setup plan: chat model by memory", () => {
     expect(p.packages.ort.variant).toBe("cpu");
   });
 
-  it("no GPU, 8 GB with little free RAM: the smallest tag, never one that does not fit", () => {
+  it("no GPU, 8 GB with little free RAM: the tier follows the total (2b), free memory only warns", () => {
     const pick = plan.chatModelFor(noGpu(8, 3.5));
-    expect(pick.tag).toBe("qwen3.5:0.8b");
+    expect(pick.tag).toBe("qwen3.5:2b");
+    expect(pick.tag).toBe(plan.chatModelFor(noGpu(8, 6)).tag);
     expect(pick.needs.memoryGb).toBeLessThanOrEqual(pick.memory.usableGb);
+    expect(pick.warn).toMatch(/free right now/);
+    expect(plan.chatModelFor(noGpu(8, 6)).warn).toBeUndefined();
   });
 
-  it("no GPU, 16 GB: qwen3.5:4b on the CPU and never a bigger tier", () => {
+  it("a browser open at Doctor time never flips the planned model on any PC", () => {
+    for (const total of [4, 8, 16, 32]) {
+      const idle = plan.chatModelFor(noGpu(total, total - 1));
+      const busy = plan.chatModelFor(noGpu(total, 0.5));
+      expect(busy.tag).toBe(idle.tag);
+      expect(busy.numCtx).toBe(idle.numCtx);
+    }
+    // An installed model that fits the total stays in use even when little is free right now.
+    const p = plan.buildSetupPlan(noGpu(16, 1.5), deps({ installedModels: ["qwen3.5:4b"] }));
+    expect(p.chat.action).toBe("keep");
+    expect(p.chat.use).toBe("qwen3.5:4b");
+  });
+
+  it("no GPU, 16 GB: qwen3.5:4b on the CPU; bigger RAM climbs the CPU tiers, each fitting its memory", () => {
     const pick = plan.chatModelFor(noGpu(16, 12));
     expect(pick.tag).toBe("qwen3.5:4b");
     expect(pick.device).toBe("cpu");
-    expect(plan.chatModelFor(noGpu(64, 50)).tag).toBe("qwen3.5:4b");
+    expect(plan.chatModelFor(noGpu(24, 20)).tag).toBe("qwen3.5:9b");
+    expect(plan.chatModelFor(noGpu(32, 28)).tag).toBe("qwen3.6:35b-a3b");
+    expect(plan.chatModelFor(noGpu(48, 44)).tag).toBe("qwen3.6:35b-a3b");
+    const big = plan.chatModelFor(noGpu(64, 50));
+    expect(big.tag).toBe("qwen3.6:35b-a3b");
+    expect(big.needs.downloadGb).toBeLessThanOrEqual(23);
+    expect(big.alternatives.map((a: { tag: string }) => a.tag)).toContain("qwen3.6:35b-a3b-q8_0");
+    expect(big.estimated).toBe(true);
+    for (const ram of [16, 24, 32, 48, 64]) {
+      const p = plan.chatModelFor(noGpu(ram, ram - 2));
+      expect(p.needs.memoryGb).toBeLessThanOrEqual(p.memory.usableGb);
+    }
   });
 
-  it("a 4 GB card with 3.4 GB free: the CPU runs qwen3.5:2b, no CUDA build, Vulkan build, never a spill", () => {
+  it("a 4 GB card is served: the 4-bit qwen3.5:2b runs on the GPU, no CUDA build, Vulkan build, never a spill", () => {
     const f = nvidia(4, 3.4);
     const p = plan.buildSetupPlan(f, deps());
-    expect(p.chat.tag).toBe("qwen3.5:2b");
-    expect(p.chat.device).toBe("cpu");
-    expect(p.chat.reason).toMatch(/too small/);
+    expect(p.chat.tag).toBe("qwen3.5:2b-q4_K_M");
+    expect(p.chat.tier).toBe("gpu-4");
+    expect(p.chat.device).toBe("gpu");
+    expect(p.chat.backend).toBe("cuda");
+    expect(p.chat.needs.memoryGb).toBeLessThanOrEqual(p.chat.memory.usableGb);
     expect(p.llama.install.backend).toBe("vulkan");
     expect(p.llama.skipped.map((s: { backend: string }) => s.backend)).toContain("cuda");
     // The dense 4b alternative would spill: rejected with the reason, not offered.
     const pick = plan.chatModelFor(f);
     expect(pick.alternatives.map((a: { tag: string }) => a.tag)).not.toContain("qwen3.5:4b");
+    // The same card with little free video memory keeps the tier and only warns.
+    expect(plan.chatModelFor(nvidia(4, 1.2)).tag).toBe("qwen3.5:2b-q4_K_M");
+    expect(plan.chatModelFor(nvidia(4, 1.2)).warn).toMatch(/free right now/);
   });
 
   it("the owner's PC (6 GB card, 15.8 GB RAM with 5.8 free, CUDA 12 driver, cuDNN files): qwen3.5:4b on the GPU", () => {
@@ -145,8 +187,9 @@ describe("setup plan: chat model by memory", () => {
     expect(p.llama.fallbacks).toEqual(["vulkan", "cpu-pinned"]);
     expect(p.packages.cudaLibs.action).toBe("present");
     expect(p.packages.ort.variant).toBe("gpu");
-    expect(p.packages.ort.installNow).toBe("cpu");
-    expect(p.offered.map((o: { id: string }) => o.id)).toContain("onnxruntime-gpu");
+    // The CUDA libraries are on this PC, so the GPU build of ONNX Runtime is the one installed now.
+    expect(p.packages.ort.installNow).toBe("gpu");
+    expect(p.offered.map((o: { id: string }) => o.id)).not.toContain("onnxruntime-gpu");
   });
 
   it("a 12 GB card: qwen3.5:9b; a 24 GB card: qwen3.6:27b-q4_K_M", () => {
@@ -154,19 +197,23 @@ describe("setup plan: chat model by memory", () => {
     expect(plan.chatModelFor(nvidia(24, 23.2)).tag).toBe("qwen3.6:27b-q4_K_M");
   });
 
-  it("an 8 GB card: the 4b q8 build when it fits, else the 4b; 16 GB: gemma4:12b", () => {
+  it("an 8 GB card: the 4b q8 build, whatever is free right now; 16 GB: gemma4:12b", () => {
     expect(plan.chatModelFor(nvidia(8, 7.9)).tag).toBe("qwen3.5:4b-q8_0");
-    expect(plan.chatModelFor(nvidia(8, 6.5)).tag).toBe("qwen3.5:4b");
+    expect(plan.chatModelFor(nvidia(8, 6.5)).tag).toBe("qwen3.5:4b-q8_0");
     expect(plan.chatModelFor(nvidia(16, 15)).tag).toBe("gemma4:12b");
   });
 
-  it("weights plus 20 percent must fit: a 48 GB card takes the 39 GB tag only with room", () => {
+  it("weights plus 20 percent must fit the total: the 48 GB card takes the 39 GB tag, a 40 GB card does not", () => {
     expect(plan.chatModelFor(nvidia(48, 47.9)).tag).toBe("qwen3.6:35b-a3b-q8_0");
-    expect(plan.chatModelFor(nvidia(48, 46.5)).tag).toBe("qwen3.6:27b-q4_K_M");
+    expect(plan.chatModelFor(nvidia(48, 46.5)).tag).toBe("qwen3.6:35b-a3b-q8_0");
+    expect(plan.chatModelFor(nvidia(40, 39)).tag).toBe("qwen3.6:35b-a3b-q4_K_M");
   });
 
-  it("a card nearly full of other work gets a smaller model (free video memory counts, not the size)", () => {
-    expect(plan.chatModelFor(nvidia(12, 5)).tag).toBe("qwen3.5:4b");
+  it("a card nearly full of other work keeps its tier (the total counts) and warns about the free memory", () => {
+    const pick = plan.chatModelFor(nvidia(12, 5));
+    expect(pick.tag).toBe("qwen3.5:9b");
+    expect(pick.warn).toMatch(/close other apps/);
+    expect(pick.memory.freeUsableGb).toBe(4);
   });
 
   it("alternatives that fit are listed, one that only fits as a mixture-of-experts split is marked", () => {
@@ -176,7 +223,7 @@ describe("setup plan: chat model by memory", () => {
     expect(small.alternatives.map((a: { tag: string }) => a.tag)).toContain("gemma4:12b-it-qat");
   });
 
-  it("an AMD card (Vulkan only) gets the Vulkan llama.cpp build and a RAM-sized Ollama model", () => {
+  it("a dedicated AMD card (Vulkan only) gets the Vulkan llama.cpp build and a video-memory-sized Ollama model", () => {
     const f = base({
       vramGb: 8,
       gpuVendor: "amd",
@@ -195,9 +242,15 @@ describe("setup plan: chat model by memory", () => {
       vulkan: true,
     });
     const p = plan.buildSetupPlan(f, deps());
-    expect(p.llama.install.backend).toBe("vulkan");
-    expect(p.chat.device).toBe("cpu");
-    expect(p.chat.tag).toBe("qwen3.5:4b");
+    // Decision D-9: a dedicated AMD card tries ROCm first and Vulkan is its first fallback; Ollama chat stays on Vulkan.
+    expect(p.llama.install.backend).toBe("rocm");
+    expect(p.llama.chain).toEqual(["rocm", "vulkan", "cpu"]);
+    expect(p.llama.fallbacks).toEqual(["vulkan", "cpu-pinned"]);
+    expect(p.chat.device).toBe("gpu");
+    expect(p.chat.backend).toBe("vulkan");
+    expect(p.chat.estimated).toBe(true);
+    expect(p.chat.tag).toBe("qwen3.5:4b-q8_0");
+    expect(p.chat.reason).toMatch(/Vulkan, speed is estimated/);
     expect(p.packages.cudaLibs.action).toBe("skip");
     expect(p.packages.ort.variant).toBe("directml");
     expect(p.packages.ort.installNow).toBe("cpu");
@@ -232,7 +285,7 @@ describe("setup plan: chat model by memory", () => {
     f["gpus"][0].driver = "540.10";
     const p = plan.buildSetupPlan(f, deps());
     expect(p.chat.device).toBe("cpu");
-    expect(p.chat.reason).toMatch(/older than 551\.61/);
+    expect(p.chat.reason).toMatch(/older than 550/);
     expect(p.llama.install.backend).toBe("cuda");
   });
 
@@ -427,7 +480,8 @@ describe("setup plan: voice, output, never throws", () => {
     expect(joined).toMatch(/CUDA 12: driver yes, cuBLAS\/cuDNN files found/);
     expect(joined).toMatch(/llama\.cpp: install cuda/);
     expect(joined).toMatch(/chat model: pull qwen3\.5:4b/);
-    expect(joined).toMatch(/offered, not installed: onnxruntime-gpu/);
+    expect(joined).toMatch(/ONNX Runtime: install gpu - the CUDA libraries are on this PC/);
+    expect(joined).toMatch(/chat context: \d+k tokens/);
     expect(joined).toMatch(/download now:/);
   });
 
@@ -468,7 +522,10 @@ describe("setup plan: voice, output, never throws", () => {
     expect(small.options.num_ctx).toBe(8192);
     expect(small.keep_alive).toBe("30m");
     expect(small.env.OLLAMA_KV_CACHE_TYPE).toBe("f16");
-    expect(small.env.OLLAMA_FLASH_ATTENTION).toBe("automatic");
+    // Ollama accepts 0 or 1 for this variable: "automatic" is the unset default and is never written to it.
+    expect(small.env.OLLAMA_FLASH_ATTENTION).toBeUndefined();
+    expect(tiersFile.ollamaSettings.env.OLLAMA_FLASH_ATTENTION).toBeUndefined();
+    expect(tiersFile.ollamaSettings.flashAttention).toBe("automatic");
     expect(small.env.OLLAMA_MAX_LOADED_MODELS).toBe("1");
     const big = plan.buildSetupPlan(nvidia(24, 23.2), deps()).chat.settings;
     expect(big.env.OLLAMA_MAX_LOADED_MODELS).toBeUndefined();
@@ -483,12 +540,16 @@ describe("setup plan: the tier table and the source", () => {
       "cpu-ram-under-8",
       "cpu-ram-8",
       "cpu-ram-16",
+      "cpu-ram-24",
+      "cpu-ram-32",
+      "cpu-ram-64",
       "gpu-4",
       "gpu-6",
       "gpu-8",
       "gpu-12",
       "gpu-16",
       "gpu-24",
+      "gpu-32",
       "gpu-48",
     ]);
     for (const r of rows()) {
@@ -528,5 +589,27 @@ describe("setup plan: the tier table and the source", () => {
     expect(source).not.toMatch(/\.name\s*(===|!==|==|!=|\.test|\.includes|\.match)/);
     expect(source).not.toMatch(/(?:name|gpuName)\)?\s*\.(?:test|includes|match|startsWith)\(/);
     expect(JSON.stringify(tiersFile)).not.toMatch(/\b(rtx|gtx|geforce|radeon)\b/i);
+  });
+});
+
+describe("setup plan: a tight disk keeps the chat model, the voice extras yield", () => {
+  const tight = (freeGb: number) => ({
+    statfs: () => ({ bavail: Math.round(freeGb * 1024 ** 2), bsize: 1024 }),
+  });
+
+  it("8 GB free on a 12 GB card still plans a chat model of 1.3 GB or more", () => {
+    const p = plan.buildSetupPlan(nvidia(12, 11, { diskFreeGb: 8 }), deps(tight(8)));
+    expect(p.chat.tag).not.toBeNull();
+    expect(p.chat.needs.downloadGb).toBeGreaterThanOrEqual(1.3);
+    expect(["pull", "defer"]).toContain(p.chat.action);
+  });
+
+  it("with room for everything nothing yields: the chat model and the voice extras both stay", () => {
+    const roomy = plan.buildSetupPlan(nvidia(12, 11), deps());
+    expect(roomy.chat.tag).toBe("qwen3.5:9b");
+    expect(roomy.voice.optionalBytes).toBeGreaterThan(0);
+    expect(
+      roomy.voice.skipped.filter((s: { reason: string }) => /disk|space/i.test(s.reason)),
+    ).toEqual([]);
   });
 });

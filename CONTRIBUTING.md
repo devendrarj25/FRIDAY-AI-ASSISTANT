@@ -52,9 +52,12 @@ implementation per feature (`config/project-structure.json`). Do not remove
 a working feature or invent a parallel path. Publisher stays **Devendra Singh
 Meena (devendrarj25)**.
 
-Locked areas, and what to do when a task must touch one, are in
-[AGENTS.md](AGENTS.md). Canonical files that re-run their tests:
-`src/lib/friday/navigation.ts`, `electron/update-safety.cjs`.
+Only the look of FRIDAY is locked (text, font, UI, design, graphics, color, logo,
+theme, animation): it changes only when the owner asks for that change. Everything
+else is changed with care: keep the product working and move the tests and
+documents in the same change. The rule is in [AGENTS.md](AGENTS.md). Canonical
+files that re-run their tests: `src/lib/friday/navigation.ts`,
+`electron/update-safety.cjs`.
 
 ## 3. Environment
 
@@ -98,5 +101,5 @@ second registry or a second What's New store.
 ## 6. What not to touch
 
 - Do not bump `config/friday-version.json` unless the owner asked.
-- Do not run a GitHub Actions workflow. The owner runs them. Leave the tree so those jobs would stay green. Do not edit `.github/workflows/` or `.github/actions/` unless [AGENTS.md](AGENTS.md) → GitHub workflows stay locked allows it. A request to edit them still needs a second yes or ok.
+- Do not run a GitHub Actions workflow. The owner runs them. Leave the tree so those jobs would stay green. Workflow files under `.github/workflows/` and `.github/actions/` may be edited with care when the work needs it: read the effect on every workflow that shares the behaviour, validate the YAML and the workflow tests locally, and mark hosted Actions unverified ([AGENTS.md](AGENTS.md) → GitHub workflows).
 - Do not commit to `main`. Open a pull request; the owner merges.

@@ -95,3 +95,57 @@ describe("environment registry runs off the window's thread", () => {
     );
   });
 });
+
+describe("environment registry resolves the FRIDAY folder lazily and lists the PC tools", () => {
+  it("never records the folder, and looks it up again on each read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "friday-env-lazy-"));
+    const script = `
+      const fr = require(${JSON.stringify(join(root, "scripts/friday-root.cjs"))});
+      const real = fr.workspaceRootOrDev;
+      const calls = [];
+      fr.workspaceRootOrDev = (options) => { calls.push(JSON.stringify(options || {})); return real(options); };
+      const registry = require(${JSON.stringify(join(root, "scripts/env-registry.cjs"))});
+      const atLoad = calls.length;
+      registry.readRegistry();
+      process.stdout.write(JSON.stringify({ atLoad, afterRead: calls }));
+    `;
+    const run = spawnSync(process.execPath, ["-e", script], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, FRIDAY_DATA_DIR: "", FRIDAY_DB_PATH: join(dir, "db.sqlite3") },
+    });
+    expect(run.status, run.stderr).toBe(0);
+    const out = JSON.parse(run.stdout) as { atLoad: number; afterRead: string[] };
+    // The read looks the folder up itself (the load only did what python-runtime.cjs does).
+    expect(out.afterRead.length).toBeGreaterThan(out.atLoad);
+    for (const call of out.afterRead) expect(JSON.parse(call)).toEqual({ record: false });
+  });
+
+  it("adds Git, FFmpeg and Tesseract rows (and PowerShell and the Visual C++ runtime on Windows) as optional notices", () => {
+    const dir = mkdtempSync(join(tmpdir(), "friday-env-tools-"));
+    const script = `
+      const registry = require(${JSON.stringify(join(root, "scripts/env-registry.cjs"))});
+      const result = registry.refreshRegistry();
+      process.stdout.write(JSON.stringify(result.components.map((c) => ({ id: c.id, optional: c.optional === true, health: c.health }))));
+    `;
+    const run = spawnSync(process.execPath, ["-e", script], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 120_000,
+      env: { ...process.env, FRIDAY_DATA_DIR: dir },
+    });
+    expect(run.status, run.stderr).toBe(0);
+    const rows = JSON.parse(run.stdout) as { id: string; optional: boolean; health: string }[];
+    const ids = rows.map((row) => row.id);
+    for (const id of ["git", "ffmpeg", "tesseract"]) {
+      expect(ids, id).toContain(id);
+      expect(rows.find((row) => row.id === id)?.optional, id).toBe(true);
+    }
+    if (process.platform === "win32") {
+      for (const id of ["powershell", "vc-runtime"]) expect(ids, id).toContain(id);
+    }
+    expect(
+      JSON.parse(readFileSync(join(dir, "environment-registry.json"), "utf8")).components,
+    ).toHaveLength(rows.length);
+  });
+});

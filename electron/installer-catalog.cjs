@@ -248,6 +248,48 @@ function voiceRows(root, deps = {}) {
         : null,
     });
   }
+  // File sets (voice-weights.cjs `fileSets`): a model of several single files from the publisher's own host, each one
+  // pinned by url, SHA-256 and size. Installed only when every file is on disk at its pinned size; the Models page
+  // downloads the whole set and repairs a damaged file (electron/model-download.cjs).
+  for (const set of typeof weights.fileSets === "function" ? weights.fileSets() : []) {
+    const installed = root
+      ? weights.fileSetReady(root, set.id, {
+          sizeOf: (file) => (fsApi.existsSync(file) ? fsApi.statSync(file).size : -1),
+        })
+      : null;
+    // The publisher's folder name in the url (quantized_26_11_02) is the version of the pinned set.
+    const version = /\/([\w.-]+)\/[^/]+$/.exec(String(set.files[0]?.url || ""))?.[1] || "pinned";
+    out.push({
+      id: `voice:${set.id}`,
+      kind: "voice-model",
+      name: set.label,
+      category: set.kind === "tts" ? "Voice output" : "Voice input",
+      installed,
+      installedVersion: installed ? version : null,
+      servedFrom: null,
+      facts: { catalogId: set.id, kind: set.kind, repo: null, diskBytes: set.diskBytes },
+      license: set.license || null,
+      firewallClass: set.firewallClass || null,
+      optional: set.optional === true,
+      byRevision: true,
+      chain: {
+        key: `voice:${set.id}`,
+        sources: [
+          {
+            kind: "pinned",
+            version,
+            assets: set.files.map((file) => ({
+              name: file.file,
+              bytes: file.bytes,
+              sha256: file.sha256,
+            })),
+          },
+        ],
+        revisionPolicy: "pinned",
+        pinnedVersion: version,
+      },
+    });
+  }
   return out;
 }
 
@@ -620,6 +662,22 @@ function doctorRows(rows) {
       repair: needed ? { id: libs.id, action: libs.installed ? "repair" : "install" } : null,
     });
   }
+  // The CUDA 13 libraries (driver 580 or newer) for the CUDA 13 ONNX Runtime; the speech pair above stays CUDA 12.
+  const libs13 = pick("CUDA 13 runtime libraries");
+  if (libs13) {
+    const needed = libs13.fit.state !== "unsupported";
+    out.push({
+      id: "cuda13-libs",
+      label: "CUDA 13 runtime libraries (cuBLAS 13, cuDNN 9)",
+      status: !needed ? "skip" : libs13.installed ? "ok" : "warn",
+      detail: !needed
+        ? libs13.fit.reasons[0]?.text || "no NVIDIA GPU with a CUDA 13 driver"
+        : libs13.installed
+          ? `installed ${libs13.installedVersion || ""}`.trim()
+          : "not installed: the GPU ONNX Runtime stays off",
+      repair: needed ? { id: libs13.id, action: libs13.installed ? "repair" : "install" } : null,
+    });
+  }
   for (const id of ["llama.cpp", "stable-diffusion.cpp", "FFmpeg (LGPL, portable)"]) {
     const row = pick(id);
     if (!row) continue;
@@ -662,7 +720,59 @@ function doctorRows(rows) {
   return out;
 }
 
+/**
+ * The setup notices (scripts/setup-notices.cjs, <root>/runtime/setup-notices.json: what setup, Doctor and the build could
+ * not finish) as the catalogue's `setupNotices`: each open notice with the catalogue row or the Doctor row that finishes
+ * it (`installManagerId` is a row id such as `voice:<id>` or `model:ollama:<tag>`, or a Doctor id such as `cuda-libs`).
+ * A notice whose row is installed, or whose Doctor row is ok, is cleared from the record: the inventory is the truth.
+ * Only the reader and the clear are used here; nothing is written to the record otherwise. Never throws; a catalogue
+ * that is not a list comes back as it was.
+ *
+ * @param {object|null} catalog   the catalogue payload (rows, doctor)
+ * @param {{root?: string|null, notices?: {readNotices: Function, clearNotice: Function}|null}} options
+ */
+function withSetupNotices(catalog, { root = null, notices = null } = {}) {
+  if (!catalog || !Array.isArray(catalog.rows)) return catalog;
+  const open = [];
+  try {
+    const list = root && notices ? notices.readNotices(root) : [];
+    const doctor = Array.isArray(catalog.doctor) ? catalog.doctor : [];
+    for (const notice of list) {
+      const row = notice.installManagerId
+        ? catalog.rows.find((item) => item.id === notice.installManagerId)
+        : null;
+      const doctorRow =
+        !row && notice.installManagerId
+          ? doctor.find((item) => item.id === notice.installManagerId)
+          : null;
+      if (row?.installed === true || doctorRow?.status === "ok") {
+        try {
+          notices.clearNotice(notice.id, { root });
+        } catch {
+          /* a record that cannot be written only stays listed until the next read */
+        }
+        continue;
+      }
+      open.push({
+        id: notice.id,
+        kind: notice.kind,
+        label: notice.label,
+        reason: notice.reason,
+        installManagerId: notice.installManagerId,
+        repair: notice.repair,
+        at: notice.at,
+        rowId: row ? row.id : null,
+        doctorId: doctorRow ? doctorRow.id : null,
+      });
+    }
+  } catch {
+    return { ...catalog, setupNotices: [] };
+  }
+  return { ...catalog, setupNotices: open };
+}
+
 module.exports = {
+  withSetupNotices,
   UPDATE_STATUSES,
   AUTONOMY,
   updateStatusOf,

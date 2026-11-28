@@ -836,15 +836,15 @@ async function main(argv) {
   if (!(opts.maxGb > 0)) throw new Error("--max-gb must be a positive number");
   if (opts.partBytes && !(opts.partBytes > 0 && opts.partBytes < ASSET_LIMIT))
     throw new Error("--part-bytes must be a whole number under 2 GiB");
-  const voicePins = require("../electron/voice-pins.cjs");
-  const helperJobs = require("../electron/voice-weights.cjs").pinnedJobs();
+  const voicePins = require("./electron-module.cjs").load("voice-pins.cjs");
+  const helperJobs = require("./electron-module.cjs").load("voice-weights.cjs").pinnedJobs();
   const core = readCore();
   const sources = { helperJobs, core };
   const problems = packsProblems(whole, sources);
   if (problems.length)
     throw new Error(`the packs are not sound:\n  ${problems.slice(0, 8).join("\n  ")}`);
   const manifest = packManifest(whole, opts.pack, sources);
-  const { downloadUrl } = require("../electron/model-download.cjs");
+  const { downloadUrl } = require("./electron-module.cjs").load("model-download.cjs");
   const result = await buildPack({
     manifest,
     pins: pinTable({ voicePins: voicePins.PINS, helperJobs, core, licences: voicePins.LICENCES }),

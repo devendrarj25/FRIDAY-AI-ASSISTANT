@@ -139,11 +139,11 @@
       "catalogNote": "llama.cpp publishes release binaries, not a model library. Import a GGUF or use a Hugging Face file.",
       "release": {
         "repo": "ggml-org/llama.cpp",
-        "tag": "b12230",
-        "asset": "llama-b12230-bin-win-cpu-x64.zip",
-        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-win-cpu-x64.zip",
-        "bytes": 24898046,
-        "sha256": "a787fb94d48e6d93aa5809133f5f984360a5713b20d2f9ee1ccc4b22cd9cce56"
+        "tag": "b12619",
+        "asset": "llama-b12619-bin-win-cpu-x64.zip",
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12619/llama-b12619-bin-win-cpu-x64.zip",
+        "bytes": 25027471,
+        "sha256": "45ffc16fc62e47f1a82a12dad0d88051660b571eaaae69ee3e981733b9563636"
       },
       "start": null,
       "stopHint": "Stop the llama-server process.",

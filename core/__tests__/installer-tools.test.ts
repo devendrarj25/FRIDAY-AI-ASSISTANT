@@ -108,6 +108,59 @@ describe("installer tools before the build", () => {
     }
   });
 
+  it("tries the npmmirror copy after GitHub failed, and never replaces a mirror the owner set", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "friday-itools-"));
+    try {
+      const env: Record<string, string> = {
+        ELECTRON_BUILDER_CACHE: dir,
+        FRIDAY_PREFETCH_BUILDER_TOOLS: "1",
+      };
+      const seen: Array<string | undefined> = [];
+      const base = fakeToolset(dir);
+      const toolset = {
+        getMakeNsisPath: async () => {
+          seen.push(env["ELECTRON_BUILDER_BINARIES_MIRROR"]);
+          if (!env["ELECTRON_BUILDER_BINARIES_MIRROR"]) throw new Error("github blocked");
+          return base.toolset.getMakeNsisPath();
+        },
+        getNsisPluginsPath: base.toolset.getNsisPluginsPath,
+      };
+      const sleep = async () => {};
+      expect(await ensure.ensureInstallerTools({ env, loadToolset: () => toolset, sleep })).toBe(
+        true,
+      );
+      // Three GitHub tries (the first and the two retries), then the mirror once it was set.
+      expect(seen).toEqual([
+        undefined,
+        undefined,
+        undefined,
+        "https://cdn.npmmirror.com/binaries/electron-builder-binaries/",
+      ]);
+      expect(env["ELECTRON_BUILDER_BINARIES_MIRROR"]).toBeUndefined();
+
+      const dir2 = mkdtempSync(path.join(tmpdir(), "friday-itools-"));
+      try {
+        const own: Record<string, string> = {
+          ELECTRON_BUILDER_CACHE: dir2,
+          FRIDAY_PREFETCH_BUILDER_TOOLS: "1",
+          ELECTRON_BUILDER_BINARIES_MIRROR: "https://mirror.example/builder/",
+        };
+        const broken = fakeToolset(dir2, 99);
+        expect(
+          await ensure.ensureInstallerTools({ env: own, loadToolset: () => broken.toolset, sleep }),
+        ).toBe(false);
+        expect(broken.calls()).toBe(3);
+        expect(own["ELECTRON_BUILDER_BINARIES_MIRROR"]).toBe("https://mirror.example/builder/");
+        expect(ensure.builderMirrorOwned(own)).toBe(true);
+        expect(ensure.builderMirrorOwned({})).toBe(false);
+      } finally {
+        rmSync(dir2, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("is part of setup, Doctor and the build's first phase", () => {
     const fs = require("node:fs");
     const check = fs.readFileSync(

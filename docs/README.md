@@ -26,7 +26,7 @@ One topic per file. If you need another topic, open its document. Do not paste i
 | Document | Answers | For |
 | --- | --- | --- |
 | [ARCHITECTURE.md](../ARCHITECTURE.md) | Process layers, the allowlisted IPC surface, and how renderer, main, and kernel meet | developers, contributors |
-| [docs/FRIDAY_ARCHITECTURE_BASELINE.md](FRIDAY_ARCHITECTURE_BASELINE.md) | The locked folder and subsystem baseline the architecture audit enforces | developers, contributors |
+| [docs/FRIDAY_ARCHITECTURE_BASELINE.md](FRIDAY_ARCHITECTURE_BASELINE.md) | The folder and subsystem baseline the architecture audit enforces | developers, contributors |
 | [docs/FRIDAY_MASTER_FLOW.md](FRIDAY_MASTER_FLOW.md) | The owner operating loop and which live module owns each stage | developers, contributors |
 | [docs/FRIDAY_STORAGE_CONTRACT.md](FRIDAY_STORAGE_CONTRACT.md) | The single FRIDAY root, what Setup may replace, and what uninstall may delete | developers, contributors |
 | [docs/FRIDAY_PROVIDERS_AND_SECRETS.md](FRIDAY_PROVIDERS_AND_SECRETS.md) | Local model engines, cloud providers, encrypted keys, billing firewall, and privacy egress | owner, developers |

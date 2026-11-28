@@ -332,6 +332,29 @@ function formatBytes(bytes) {
     : `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
 }
 
+/**
+ * Bytes per second over the newest samples (`{ at, bytes }`, oldest first) that fall inside `windowMs`. A rolling
+ * window follows the real speed instead of the average since the start, and a stalled download reads 0. Pure.
+ */
+function rollingSpeed(samples, now, windowMs = 5000) {
+  const recent = (samples || []).filter((sample) => now - sample.at <= windowMs);
+  if (recent.length < 2) return 0;
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  const seconds = (last.at - first.at) / 1000;
+  const gained = last.bytes - first.bytes;
+  return seconds > 0 && gained > 0 ? gained / seconds : 0;
+}
+
+/** The text beside a download bar: `37 MB / 95 MB · 4.1 MB/s` (the speed once it is known). Pure. */
+function downloadDetail({ bytesDone, bytesTotal }, speed = 0) {
+  const done = formatBytes(bytesDone) || "0 MB";
+  const total = formatBytes(bytesTotal);
+  if (!total) return "";
+  const rate = speed > 0 ? ` · ${formatBytes(speed)}/s` : "";
+  return `${done} / ${total}${rate}`;
+}
+
 // A tick and a cross from the Math and Latin-1 blocks (code page 437 has the tick): the dingbat check mark (U+2714) is
 // drawn by Windows Terminal from the emoji font, in the emoji font's own purple, whatever colour is asked for.
 const TICK = "√";
@@ -393,6 +416,8 @@ function runLive({
         worker = null;
       }
     }
+    let downloadNote = "";
+    const samples = [];
     const ticker = activity.startTicker({
       label,
       watch: watch.length ? watch : [],
@@ -400,7 +425,9 @@ function runLive({
       every: 1000,
       boardActive: () => false,
       size: () => bytes,
-      write: (_line, text) => live.setDetail(String(text).replace(/^still working · /, "")),
+      // While a download reports its size, that (and the speed) stays beside the bar instead of the time.
+      write: (_line, text) =>
+        live.setDetail(downloadNote || String(text).replace(/^still working · /, "")),
     });
     live.start(label);
 
@@ -427,7 +454,15 @@ function runLive({
       const ready = text.slice(0, cut);
       const progress = installer.progressFromChunk(ready);
       // The bar follows the download and goes away when it is over: the install that follows has no share to show.
-      if (progress) live.setProgress(progress.percent >= 100 ? null : progress.percent / 100);
+      if (progress) {
+        live.setProgress(progress.percent >= 100 ? null : progress.percent / 100);
+        const at = Date.now();
+        samples.push({ at, bytes: progress.bytesDone });
+        while (samples.length > 40) samples.shift();
+        downloadNote =
+          progress.percent >= 100 ? "" : downloadDetail(progress, rollingSpeed(samples, at));
+        if (downloadNote) live.setDetail(downloadNote);
+      }
       for (const line of installer.tidyChunk(ready)) {
         if (line === lastTidy) continue;
         lastTidy = line;
@@ -577,5 +612,7 @@ module.exports = {
   runLive,
   summaryLine,
   formatBytes,
+  rollingSpeed,
+  downloadDetail,
   clock,
 };

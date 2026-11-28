@@ -47,18 +47,45 @@ const compare = (left, right) => {
 const supportedPython = (version) => compare(version, versions.pythonMinimum) >= 0;
 
 const log = (m) => console.log(`[friday] ${m}`);
+const setupNotices = require("./setup-notices.cjs");
+const { leave } = require("./leave.cjs");
 /**
- * On a Windows PC that builds FRIDAY, everything this script is meant to install
- * must arrive: a missing capability package or an uncached speech model stops
- * the setup. Hosted CI, an offline build and FRIDAY_PREFETCH_STRICT=0 only report.
+ * A missing capability package, an uncached speech model or a voice package is a NOTICE, never a stop: one line is
+ * printed, the item is recorded (<root>/runtime/setup-notices.json, finished later from the Install Manager) and the
+ * setup goes on. Only a real blocker (no Python, no venv, the core kernel packages, SQLite, a kernel that no longer
+ * loads) still fails. A Windows PC that must be complete opts in with FRIDAY_SETUP_STRICT=1 (or the older
+ * FRIDAY_PREFETCH_STRICT=1): then every item below stops the setup as before. Hosted CI and an offline build only report.
  */
 const mustComplete =
   process.platform === "win32" &&
   !process.env.CI &&
   !process.env.GITHUB_ACTIONS &&
   process.env.FRIDAY_OFFLINE !== "1" &&
-  String(process.env.FRIDAY_PREFETCH_STRICT ?? "1").trim() !== "0";
+  setupNotices.isStrict();
 const incomplete = [];
+// Real blockers found late in the run (the final verdict fails on any of them, strict mode or not).
+const blockers = [];
+/** The FRIDAY folder the notice record lives in; "" (nothing recorded, the line is still printed) where there is none. */
+function noticeRoot() {
+  if (process.env.FRIDAY_ROOT) return process.env.FRIDAY_ROOT;
+  if (!win) return "";
+  try {
+    return require("./friday-root.cjs").workspaceRootOrDev({ record: false }).root || "";
+  } catch {
+    return "";
+  }
+}
+/** One NOTICE line and one record entry for an item that did not finish; it never stops the setup. */
+function notice(entry) {
+  return setupNotices.recordNotice(
+    { repair: "npm run doctor", ...entry },
+    { root: noticeRoot(), log: (line) => console.log(line) },
+  );
+}
+/** The item verified: its older notice goes away. */
+function noticeCleared(id) {
+  setupNotices.clearNotice(id, { root: noticeRoot() });
+}
 // Newest official release of every package setup installs, asked at most once a day (scripts/update-policy.cjs).
 // A package that is not requested keeps the version it has (only-if-needed); a newest release that cannot be
 // installed falls through to the methods below, so the installed, supported one stays and nothing fails.
@@ -264,6 +291,38 @@ if (onnxBefore.gpu.length) {
     `ONNX Runtime ${onnxBefore.gpu.map((row) => `${row.name} ${row.version}`).join(", ")} is installed; the plain CPU wheel is not installed over it`,
   );
 }
+// The GPU tables are the Install Manager's own (electron/engine-install.cjs): which stack a driver can run, the
+// health session, the driver floors and the PyPI mirrors. Setup never stops when they cannot be read.
+const {
+  gpuStackFor,
+  GPU_HEALTH_PROBE,
+  CUDA13_DRIVER_FLOOR,
+  CUDA12_DRIVER_FLOOR,
+  PIP_BUNDLES,
+  pypiMirrors,
+} = (() => {
+  try {
+    return require("./electron-module.cjs").load("engine-install.cjs");
+  } catch {
+    return {};
+  }
+})();
+
+/**
+ * The unhashed `pip --index-url` fallback is opt-in: FRIDAY_PYPI_MIRROR=1 lists the PyPI mirrors of
+ * config/download-hosts.json (tried in order after the official index), or an https PIP_INDEX_URL the PC already has
+ * is tried as a last method. Nothing is added by default, and a second index is never added beside the official one (it
+ * could win a package name). The hashed wheel downloads of the Install Manager use the mirrors on their own, checked by
+ * SHA-256 (electron/engine-install.cjs).
+ */
+function pypiMirrorIndexes(env = process.env) {
+  if (String(env.FRIDAY_PYPI_MIRROR || "") === "1") {
+    return (typeof pypiMirrors === "function" ? pypiMirrors() : []).map((m) => m.simple);
+  }
+  const existing = String(env.PIP_INDEX_URL || "").trim();
+  return /^https:\/\//.test(existing) ? [existing] : [];
+}
+
 const base = [
   "-m",
   "pip",
@@ -300,6 +359,10 @@ const pipMethods = (extra) => [
       ...extra,
     ],
   },
+  ...pypiMirrorIndexes().map((index) => ({
+    label: `PyPI mirror ${new URL(index).hostname} (opt-in, no hash check)`,
+    args: [...base, "--prefer-binary", "--index-url", index, ...extra],
+  })),
 ];
 
 // A newest-release install that breaks the kernel must not be the state the owner is left in: the
@@ -399,13 +462,13 @@ if (!installed) {
   if (installed && voicePins.length) {
     log("installing voice runtime packages (faster-whisper, edge-tts)");
     if (!installWithMethods(voicePins.map((pin) => pin.spec))) {
-      if (win) {
-        console.error("[friday] voice runtime packages failed to install.");
-        process.exit(1);
-      }
-      log(
-        "note: voice packages were not installed — kernel still boots; Install Manager can add them.",
-      );
+      // The kernel boots without them and the Install Manager adds them: a notice, not a stop.
+      notice({
+        id: "package:voice-runtime",
+        kind: "voice",
+        label: "voice runtime packages (faster-whisper, edge-tts)",
+        reason: "they did not install",
+      });
     }
   }
 }
@@ -484,6 +547,13 @@ function fetchModelsAndProbe() {
         "[friday] Fix the network, then run: npm run setup:python  (or npm run doctor)",
       );
       incomplete.push("the speech, voice and chat models are not complete");
+      notice({
+        id: "model:setup",
+        kind: "model",
+        label: "speech, voice and chat models",
+        reason: "the model step did not finish",
+        repair: "npm run setup:python",
+      });
     }
     const sttDir = ["small", "base"]
       .map((size) => path.join(picked.root, "cache", "stt", size))
@@ -535,9 +605,17 @@ function fetchModelsAndProbe() {
     }
     if (payload && payload.ok) {
       log(`speech model cached (${payload.model || "whisper"})`);
+      noticeCleared("voice:whisper-model");
     } else {
       log("speech model is not cached");
       incomplete.push("the faster-whisper speech model is not cached");
+      notice({
+        id: "voice:whisper-model",
+        kind: "voice",
+        label: "faster-whisper speech model",
+        reason: "it is not cached yet",
+        installManagerId: "voice:faster-whisper-small",
+      });
     }
     voiceSmokeTest(picked.root);
   }
@@ -553,6 +631,16 @@ function voiceSmokeTest(fridayRoot) {
     log,
   });
   incomplete.push(...result.problems);
+  for (const problem of result.problems)
+    notice({
+      id: `voice:check:${String(problem)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .slice(0, 60)}`,
+      kind: "voice",
+      label: "voice check",
+      reason: String(problem),
+    });
 }
 
 function voiceImportable() {
@@ -570,17 +658,17 @@ if (!voiceImportable()) {
   }
 }
 if (!voiceImportable()) {
-  if (win) {
-    console.error(
-      "[friday] voice packages (faster-whisper, av, edge-tts) are still not importable.",
-    );
-    process.exit(1);
-  }
-  log(
-    "note: faster-whisper / edge-tts not importable — kernel still boots; Install Manager can add them.",
-  );
+  // The kernel still boots and the Install Manager adds them: a notice on every platform, never a stop.
+  incomplete.push("voice packages (faster-whisper, av, edge-tts) are not importable");
+  notice({
+    id: "package:voice-runtime",
+    kind: "voice",
+    label: "voice packages (faster-whisper, av, edge-tts)",
+    reason: "they are not importable",
+  });
 } else {
   log("voice packages ok (faster-whisper, av, edge-tts)");
+  noticeCleared("package:voice-runtime");
 }
 
 const capReq = path.join(kernelDir, "requirements-capabilities.txt");
@@ -612,6 +700,13 @@ if (fs.existsSync(capReq)) {
       if (!installWithMethods([pin.spec], { preferBinaryFirst: true, noUpgrade: true })) {
         log(`${pin.name} did not install`);
         incomplete.push(`${pin.name} did not install`);
+        notice({
+          id: `package:${pin.name}`,
+          kind: "package",
+          label: pin.name,
+          reason: "it did not install",
+          installManagerId: runtime.pipName(pin.name),
+        });
       }
     }
   }
@@ -633,9 +728,17 @@ if (fs.existsSync(capReq)) {
       (pin.name === "pymupdf" && capture(python, ["-c", "import fitz"]).status === 0);
     if (importOk) {
       log(`${pin.name} ok`);
+      noticeCleared(`package:${pin.name}`);
     } else {
       log(`${pin.name} is not importable`);
       incomplete.push(`${pin.name} is not importable`);
+      notice({
+        id: `package:${pin.name}`,
+        kind: "package",
+        label: pin.name,
+        reason: "it is not importable",
+        installManagerId: runtime.pipName(pin.name),
+      });
     }
   }
 }
@@ -656,15 +759,19 @@ function restoreGpuOnnxRuntime() {
   run(python, ["-m", "pip", "uninstall", "--yes", "--disable-pip-version-check", "onnxruntime"]);
   const spec = gpu.version ? `${gpu.name}==${gpu.version}` : gpu.name;
   if (!installWithMethods(["--force-reinstall", "--no-deps", spec], { noUpgrade: true })) {
-    log(
-      `NOTE ${gpu.name} could not be restored; run it again from the Install Manager (ONNX Runtime)`,
-    );
+    notice({
+      id: `package:${gpu.name}`,
+      kind: "package",
+      label: gpu.name,
+      reason: "it could not be restored beside the CPU wheel",
+      installManagerId: "onnxruntime",
+    });
   }
 }
 restoreGpuOnnxRuntime();
 
 if (upgradeTried && !kernelLoads() && !rollbackUpgrade()) {
-  incomplete.push(
+  blockers.push(
     "the newest package releases broke the kernel and the earlier set could not be restored",
   );
 }
@@ -736,6 +843,14 @@ function fetchChromaEmbeddingModel() {
       ? "semantic-memory embedding model ready"
       : "NOTE the semantic-memory model was not downloaded; it is fetched on first use, or memory uses the local index (npm run doctor tries again)",
   );
+  if (result.status === 0) noticeCleared("model:chroma-minilm");
+  else
+    notice({
+      id: "model:chroma-minilm",
+      kind: "model",
+      label: "semantic-memory embedding model (all-MiniLM-L6-v2)",
+      reason: "it was not downloaded; it is fetched on first use",
+    });
 }
 
 /**
@@ -744,17 +859,19 @@ function fetchChromaEmbeddingModel() {
  * silently stayed on the CPU. pip ships both as ordinary wheels, so they are installed on an NVIDIA PC.
  * Best effort: without them speech works on the CPU as before.
  */
-function pinnedCudaLibsLines() {
+/** The pinned `name==version --hash=sha256:...` lines of one PIP_BUNDLES entry for Windows x64, or null when no pin fits. */
+function pinnedBundleLines(name) {
   if (!win || process.arch !== "x64") return null;
   try {
     const { PIP_BUNDLES, PINNED_WHEELS, planWheels } =
       require("./electron-module.cjs").load("engine-install.cjs");
-    const bundle = PIP_BUNDLES["cuda-libs"];
+    const bundle = PIP_BUNDLES[name];
+    if (!bundle) return null;
     const resolved = Object.fromEntries(
       bundle.parts.map((part) => {
-        const pin = PINNED_WHEELS[part.dist];
+        const pin = PINNED_WHEELS[part.pin || part.dist];
         return [
-          part.dist,
+          part.pin || part.dist,
           pin ? { ok: true, version: pin.version, assets: pin.assets } : { ok: false },
         ];
       }),
@@ -766,6 +883,30 @@ function pinnedCudaLibsLines() {
   }
 }
 
+/** The pinned lines of the CUDA 12 speech libraries (ctranslate2 keeps CUDA 12 on every NVIDIA tier). */
+function pinnedCudaLibsLines() {
+  return pinnedBundleLines("cuda-libs");
+}
+
+/** This PC's plan, read once (a second reader would measure the PC again). */
+let planMemo;
+function thisPcPlan() {
+  if (planMemo === undefined) planMemo = require("./prefetch-models.cjs").readPlanSync(process.env);
+  return planMemo;
+}
+
+/** Exit 0 when the pip CUDA 12 libraries (cuBLAS 12, cuDNN 9) hold their DLLs in this venv. */
+const CUDA_LIBS_PROBE = [
+  "-c",
+  [
+    "import importlib.util as u, pathlib",
+    "def ok(m, d):",
+    "    s = u.find_spec(m)",
+    "    return bool(s and s.submodule_search_locations and any((pathlib.Path(p) / 'bin' / d).is_file() for p in s.submodule_search_locations))",
+    "raise SystemExit(0 if ok('nvidia.cublas', 'cublas64_12.dll') and ok('nvidia.cudnn', 'cudnn64_9.dll') else 1)",
+  ].join("\n"),
+];
+
 function installGpuSpeechLibraries() {
   if (!win || process.env.FRIDAY_GPU_SPEECH_LIBS === "0") return;
   const smi = capture("nvidia-smi", ["-L"]);
@@ -773,7 +914,7 @@ function installGpuSpeechLibraries() {
   // This PC's plan decides (electron/setup-plan.cjs): the libraries are installed only when it says install (an NVIDIA
   // card whose driver reports CUDA 12, a compute capability the libraries support, room on the disk, a line that may
   // carry about 1.2 GB). Without a readable plan the card alone decides, as before.
-  const plan = require("./prefetch-models.cjs").readPlanSync(process.env);
+  const plan = thisPcPlan();
   const libs = plan?.required.find((row) => row.id === "cuda-libs");
   if (plan && libs?.action !== "install" && libs?.action !== "defer") {
     const why = (plan.skipped || []).find((row) => row.id === "cuda-libs")?.reason;
@@ -790,18 +931,9 @@ function installGpuSpeechLibraries() {
     );
     return;
   }
-  const probe = [
-    "-c",
-    [
-      "import importlib.util as u, pathlib",
-      "def ok(m, d):",
-      "    s = u.find_spec(m)",
-      "    return bool(s and s.submodule_search_locations and any((pathlib.Path(p) / 'bin' / d).is_file() for p in s.submodule_search_locations))",
-      "raise SystemExit(0 if ok('nvidia.cublas', 'cublas64_12.dll') and ok('nvidia.cudnn', 'cudnn64_9.dll') else 1)",
-    ].join("\n"),
-  ];
-  if (capture(python, probe).status === 0) {
+  if (capture(python, CUDA_LIBS_PROBE).status === 0) {
     log("GPU speech libraries ok (cuBLAS 12, cuDNN 9)");
+    noticeCleared("package:cuda-libs");
     return;
   }
   log(
@@ -838,24 +970,285 @@ function installGpuSpeechLibraries() {
       ? "GPU speech libraries installed"
       : "NOTE the GPU speech libraries did not install; speech runs on the CPU (npm run doctor tries again)",
   );
+  if (ok) noticeCleared("package:cuda-libs");
+  else
+    notice({
+      id: "package:cuda-libs",
+      kind: "package",
+      label: "GPU speech libraries (cuBLAS 12, cuDNN 9)",
+      reason: "they did not install; speech runs on the CPU",
+      installManagerId: "cuda-libs",
+    });
 }
 
 installGpuSpeechLibraries();
+
+/** The `driver_version` nvidia-smi reports for the first GPU ("581.15"), or "" when it cannot be read. */
+function nvidiaDriverVersion() {
+  const out = capture("nvidia-smi", ["--query-gpu=driver_version", "--format=csv,noheader"]);
+  if (out.status !== 0) return "";
+  return (
+    String(out.stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || ""
+  );
+}
+
+/**
+ * Installs the library bundles of a GPU stack (everything before its ONNX Runtime bundle), in order, each by SHA-256 pin
+ * (`--require-hashes --no-deps`, never retried unpinned). The CUDA 12 pair is skipped when its DLLs are already there.
+ * `{ ok: true }`, or `{ ok: false, reason }` for the first bundle that did not install.
+ */
+function installTierLibraries(stack) {
+  for (const name of stack.bundles) {
+    const bundle = PIP_BUNDLES[name];
+    if (!bundle || bundle.conflicts.length) continue;
+    if (name === "cuda-libs" && capture(python, CUDA_LIBS_PROBE).status === 0) continue;
+    const lines = pinnedBundleLines(name);
+    if (!lines) return { ok: false, reason: `no pinned ${bundle.id} wheel fits this PC` };
+    const file = path.join(root, "temporary", "downloads", `${name}-pinned.txt`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${lines.join("\n")}\n`);
+    log(`installing the ${bundle.id} (${lines.length} pinned wheels) with SHA-256 checks`);
+    if (
+      !installWithMethods(["--require-hashes", "--no-deps", "-r", file], {
+        preferBinaryFirst: true,
+        noUpgrade: true,
+      })
+    )
+      return { ok: false, reason: `the ${bundle.id} did not install` };
+  }
+  return { ok: true };
+}
+
+/**
+ * The GPU build of ONNX Runtime, when this PC's plan says so (`onnxruntime` variant gpu). The NVIDIA driver picks the stack
+ * (electron/engine-install.cjs gpuStackFor): CUDA 13 libraries and ONNX Runtime 1.32.0 from driver 580, the CUDA 12.9
+ * set and ONNX Runtime 1.26.0 from 576, DirectML below that; the stack's libraries are installed first, in order. The same pinned, hash-checked wheel the Install Manager installs
+ * (electron/engine-install.cjs PINNED_WHEELS), in the same order as its bundle: the wheel is downloaded and verified
+ * first, a copy of the CPU wheel is kept, the CPU wheel is removed (two builds never sit together, they share one
+ * module), the GPU wheel is installed, and a health check must pass. A failure puts the CPU wheel back from the kept
+ * copy and records a notice; it never stops the setup, and the CPU wheel that was working keeps working.
+ */
+function pinnedGpuOrtLines(pyTag, tier = "cuda13") {
+  try {
+    const key =
+      tier === "cuda12"
+        ? "onnxruntime-gpu-cu12"
+        : tier === "directml"
+          ? "onnxruntime-directml"
+          : "onnxruntime-gpu";
+    const pin = require("./electron-module.cjs").load("engine-install.cjs").PINNED_WHEELS[key];
+    const wheel = pin?.assets.find((asset) => asset.name.includes(`-${pyTag}-`));
+    return wheel && /^[a-f0-9]{64}$/.test(wheel.sha256)
+      ? { line: `${pin.dist || key}==${pin.version} --hash=sha256:${wheel.sha256}`, wheel }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function installedPlainOrtVersion() {
+  const listed = capture(python, [
+    "-m",
+    "pip",
+    "list",
+    "--format=json",
+    "--disable-pip-version-check",
+  ]);
+  try {
+    const row = JSON.parse(String(listed.stdout || "[]")).find(
+      (item) => runtime.pipName(item?.name) === "onnxruntime",
+    );
+    return row ? String(row.version || "") : "";
+  } catch {
+    return "";
+  }
+}
+
+function installGpuOnnxRuntime() {
+  if (!win || process.arch !== "x64" || process.env.FRIDAY_GPU_ORT === "0") return;
+  const plan = thisPcPlan();
+  const row = plan?.required.find((item) => item.id === "onnxruntime");
+  if (!row || row.variant !== "gpu") return;
+  if (installedOnnxRuntimes().gpu.some((item) => item.name === "onnxruntime-gpu")) {
+    log("ONNX Runtime GPU build ok (already installed)");
+    noticeCleared("package:onnxruntime-gpu");
+    return;
+  }
+  if (row.action === "defer") {
+    log(
+      "the GPU build of ONNX Runtime waits for a better moment (offline, metered line or battery); the CPU build stays; npm run doctor installs it later",
+    );
+    return;
+  }
+  const before = installedPlainOrtVersion();
+  // `state` says what is installed now: the CPU build kept (or put back), no build at all because none was there
+  // before, or none because the CPU build could not be put back.
+  const fail = (reason, state = before ? "kept" : "none") => {
+    const now = {
+      kept: "the CPU build stays in use",
+      none: "no ONNX Runtime build is installed",
+      lost: "the CPU build could not be put back either, so no ONNX Runtime is installed",
+    }[state];
+    log(`NOTE the GPU build of ONNX Runtime was not installed: ${reason}; ${now}`);
+    notice({
+      id: "package:onnxruntime-gpu",
+      kind: "package",
+      label: "ONNX Runtime GPU build",
+      reason: String(reason).slice(0, 160),
+      installManagerId: "onnxruntime",
+    });
+    if (state === "lost")
+      notice({
+        id: "package:onnxruntime",
+        kind: "package",
+        label: "ONNX Runtime",
+        reason:
+          "no ONNX Runtime is installed: the swap failed and the CPU build could not be restored",
+        installManagerId: "onnxruntime",
+      });
+  };
+  // The driver picks the stack: its libraries go in first, in order, because the GPU build needs them (without them it
+  // loads and runs on the CPU anyway). A driver that cannot be read gets DirectML, which needs no CUDA libraries.
+  if (typeof gpuStackFor !== "function") {
+    fail("the GPU install tables could not be read");
+    return;
+  }
+  const driver = nvidiaDriverVersion();
+  const stack = gpuStackFor(driver);
+  log(
+    `NVIDIA driver ${driver || "unknown"}: ${stack.tier} stack (CUDA 13 libraries need driver ${CUDA13_DRIVER_FLOOR}+, the CUDA 12 set ${CUDA12_DRIVER_FLOOR}+, DirectML below)`,
+  );
+  const libs = installTierLibraries(stack);
+  if (!libs.ok) {
+    fail(libs.reason);
+    return;
+  }
+  if (stack.tier === "cuda12" && capture(python, CUDA_LIBS_PROBE).status !== 0) {
+    fail("the CUDA 12 libraries are not in place");
+    return;
+  }
+  const tag = capture(python, [
+    "-c",
+    "import sys; print(f'cp{sys.version_info[0]}{sys.version_info[1]}')",
+  ]);
+  const pinned = pinnedGpuOrtLines(String(tag.stdout || "").trim(), stack.tier);
+  if (!pinned) {
+    fail("no pinned GPU wheel fits this Python");
+    return;
+  }
+  const ortDist = pinned.line.split("==")[0];
+  const dir = path.join(root, "temporary", "downloads", "ort-gpu");
+  const wheels = path.join(dir, "wheels");
+  const previous = path.join(dir, "previous");
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(wheels, { recursive: true });
+    fs.mkdirSync(previous, { recursive: true });
+    fs.writeFileSync(path.join(dir, "requirements.txt"), `${pinned.line}\n`);
+  } catch (error) {
+    fail(`the download folder could not be prepared (${String(error?.message || error)})`);
+    return;
+  }
+  log(
+    `installing the GPU build of ONNX Runtime (${pinned.wheel.name}, about ${Math.round(pinned.wheel.bytes / 1024 ** 2)} MB, SHA-256 checked)`,
+  );
+  const pip = (...args) => run(python, ["-m", "pip", ...args, "--disable-pip-version-check"]);
+  // 1. The new wheel is downloaded and verified while the CPU build is still in place; a hash that does not match stops here.
+  if (
+    pip(
+      "download",
+      "--no-deps",
+      "--require-hashes",
+      "-r",
+      path.join(dir, "requirements.txt"),
+      "-d",
+      wheels,
+    ).status !== 0
+  ) {
+    fail("the pinned wheel could not be downloaded or did not match its SHA-256");
+    return;
+  }
+  // 2. A copy of the CPU wheel is kept so a failure can put it back.
+  if (
+    before &&
+    pip("download", "--no-deps", `onnxruntime==${before}`, "-d", previous).status !== 0
+  ) {
+    fail("a copy of the CPU build could not be kept for a rollback");
+    return;
+  }
+  // Puts the CPU build back and says whether one is installed afterwards (true when there was none to begin with).
+  const restoreCpu = () => {
+    run(python, ["-m", "pip", "uninstall", "--yes", "--disable-pip-version-check", ortDist]);
+    if (!before) return true;
+    return (
+      pip("install", "--no-index", "--find-links", previous, "--no-deps", `onnxruntime==${before}`)
+        .status === 0
+    );
+  };
+  const giveUp = (reason) => fail(reason, restoreCpu() ? undefined : "lost");
+  // 3. The CPU build goes (one module, two builds never together), then the GPU wheel comes from the verified folder.
+  // A CPU wheel that would not go stops here: the GPU wheel is never installed beside it.
+  if (
+    before &&
+    run(python, ["-m", "pip", "uninstall", "--yes", "--disable-pip-version-check", "onnxruntime"])
+      .status !== 0
+  ) {
+    giveUp("the CPU build of ONNX Runtime could not be removed to make room for the GPU build");
+    return;
+  }
+  const put = pip(
+    "install",
+    "--no-index",
+    "--find-links",
+    wheels,
+    "--no-deps",
+    "--require-hashes",
+    "-r",
+    path.join(dir, "requirements.txt"),
+  );
+  // 4. Health: a real session must run on the card (GPU_HEALTH_PROBE: CUDAExecutionProvider listed first; a provider
+  // list alone names CUDA even when its DLLs are missing); DirectML only has to import. Otherwise the CPU build is restored.
+  const healthy =
+    put.status === 0 &&
+    capture(python, ["-c", stack.tier === "directml" ? "import onnxruntime" : GPU_HEALTH_PROBE])
+      .status === 0;
+  if (!healthy) {
+    giveUp(
+      stack.tier === "directml"
+        ? "it did not pass its health check (import)"
+        : "it did not pass its health check (a real session on the GPU)",
+    );
+    return;
+  }
+  log("ONNX Runtime GPU build installed and healthy");
+  noticeCleared("package:onnxruntime-gpu");
+  noticeCleared("package:onnxruntime");
+}
+
+installGpuOnnxRuntime();
 
 if (win && voiceImportable()) {
   fetchModelsAndProbe();
 }
 
-if (incomplete.length) {
-  const verdict = mustComplete ? "ACTION REQUIRED" : "NOTE";
-  console.error(`[friday] ${verdict}  the Python setup is not complete:`);
+if (blockers.length) {
+  console.error("[friday] ACTION REQUIRED  the Python setup cannot continue:");
+  for (const line of blockers) console.error(`[friday]   - ${line}`);
+  console.error("[friday] Fix the package named above, then run: npm run doctor");
+  leave(1);
+} else if (incomplete.length && mustComplete) {
+  console.error("[friday] ACTION REQUIRED  the Python setup is not complete (strict mode):");
   for (const line of incomplete) console.error(`[friday]   - ${line}`);
-  if (mustComplete) {
-    console.error("[friday] Fix the network or the package named above, then run: npm run doctor");
-    process.exit(1);
-  }
+  console.error("[friday] Fix the network or the package named above, then run: npm run doctor");
+  leave(1);
+} else {
+  if (upgradeTried) updatePolicy.markChecked("python-packages");
+  log("Python kernel dependencies installed.");
+  log(`FRIDAY will use: ${python}`);
+  // Every item that could not be finished is named once more, as a notice that does not stop the build.
+  for (const line of setupNotices.summaryLines(setupNotices.readNotices(noticeRoot())))
+    console.log(line);
 }
-
-if (upgradeTried) updatePolicy.markChecked("python-packages");
-log("Python kernel dependencies installed.");
-log(`FRIDAY will use: ${python}`);

@@ -79,7 +79,8 @@ const temp = () => {
 describe("a pinned helper gets the opt-in mirror as a last source, only when the owner allows it", () => {
   it("adds nothing without FRIDAY_HF_MIRROR=1", () => {
     const jobs = plan();
-    expect(find(jobs, "smart-turn").job.sources).toHaveLength(1);
+    // Hugging Face first, then the ModelScope road with the same SHA-256.
+    expect(find(jobs, "smart-turn").job.sources).toHaveLength(2);
     expect(find(jobs, "silero-vad").job.sources).toHaveLength(2);
   });
 
@@ -102,7 +103,7 @@ describe("a pinned helper gets the opt-in mirror as a last source, only when the
     }
     // A GitHub release url has no mirror host: silero keeps exactly one extra source.
     expect(find(on, "silero-vad").job.sources).toHaveLength(3);
-    expect(find(on, "smart-turn").job.sources).toHaveLength(2);
+    expect(find(on, "smart-turn").job.sources).toHaveLength(3);
   });
 
   it("the mirror host is the opt-in host of config/download-hosts.json, and every planned url passes the allowlist", () => {

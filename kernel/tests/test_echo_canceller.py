@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -240,6 +241,133 @@ class PassthroughTests(unittest.TestCase):
         lines = voice_runtime.check_lines()
         self.assertTrue(any(line.split()[1:2] == ["echo-canceller"] for line in lines))
         self.assertFalse(any(line.startswith("FAIL echo") for line in lines))
+
+
+class FakeAec3Module:
+    """Stands in for aec_audio_processing: records frames, returns the mic frame."""
+
+    calls: list = []
+
+    class AudioProcessor:
+        def __init__(self, **kwargs):
+            FakeAec3Module.calls.append(("init", kwargs))
+            self.pending = b""
+
+        def set_stream_format(self, rate, channels):
+            FakeAec3Module.calls.append(("fmt", rate, channels))
+
+        def set_reverse_stream_format(self, rate, channels):
+            FakeAec3Module.calls.append(("rfmt", rate, channels))
+
+        def set_stream_delay(self, ms):
+            FakeAec3Module.calls.append(("delay", ms))
+
+        def process_reverse_stream(self, data):
+            FakeAec3Module.calls.append(("reverse", len(data)))
+
+        def process_stream(self, data):
+            FakeAec3Module.calls.append(("stream", len(data)))
+            return data
+
+
+class BackendChoiceTests(unittest.TestCase):
+    def setUp(self):
+        FakeAec3Module.calls = []
+        if np is None:  # _load only needs the import to succeed; the pick is what these tests prove
+            patcher = mock.patch.dict(sys.modules, {"numpy": types.ModuleType("numpy")})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _env(self, value):
+        env = {} if value is None else {echo_canceller.BACKEND_ENV: value}
+        return mock.patch.dict("os.environ", env, clear=False)
+
+    def test_choice_reads_the_environment_and_defaults_to_auto(self):
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop(echo_canceller.BACKEND_ENV, None)
+            self.assertEqual(echo_canceller.backend_choice(), "auto")
+        for given, wanted in (("aec3", "aec3"), (" SPEEX ", "speex"), ("auto", "auto"), ("nonsense", "auto")):
+            with self._env(given):
+                self.assertEqual(echo_canceller.backend_choice(), wanted)
+
+    def test_auto_prefers_aec3_when_it_imports(self):
+        with (
+            self._env("auto"),
+            mock.patch.object(echo_canceller, "_import_aec3", return_value=FakeAec3Module),
+            mock.patch.object(echo_canceller, "_import_speex", return_value=object),
+        ):
+            _np, backend, reason = echo_canceller._load()
+        self.assertEqual(reason, "")
+        self.assertIs(backend, echo_canceller._Aec3)
+
+    def test_auto_falls_back_to_speex_without_aec3(self):
+        marker = type("SpeexFake", (), {})
+        with (
+            self._env("auto"),
+            mock.patch.object(echo_canceller, "_import_aec3", return_value=None),
+            mock.patch.object(echo_canceller, "_import_speex", return_value=marker),
+        ):
+            self.assertIs(echo_canceller._load()[1], marker)
+
+    def test_speex_override_skips_aec3_even_when_present(self):
+        marker = type("SpeexFake", (), {})
+        with (
+            self._env("speex"),
+            mock.patch.object(echo_canceller, "_import_aec3", return_value=FakeAec3Module),
+            mock.patch.object(echo_canceller, "_import_speex", return_value=marker),
+        ):
+            self.assertIs(echo_canceller._load()[1], marker)
+
+    def test_aec3_override_with_the_package_missing_falls_back_to_speex(self):
+        marker = type("SpeexFake", (), {})
+        with (
+            self._env("aec3"),
+            mock.patch.object(echo_canceller, "_import_aec3", return_value=None),
+            mock.patch.object(echo_canceller, "_import_speex", return_value=marker),
+        ):
+            self.assertIs(echo_canceller._load()[1], marker)
+
+    def test_no_backend_reports_the_speex_reason(self):
+        with (
+            self._env("auto"),
+            mock.patch.object(echo_canceller, "_import_aec3", return_value=None),
+            mock.patch.object(echo_canceller, "_import_speex", return_value=None),
+        ):
+            self.assertEqual(echo_canceller._load(), (None, None, "pyaec is not installed"))
+
+    def test_aec3_adapter_keeps_the_ten_ms_frame_contract(self):
+        with mock.patch.object(echo_canceller, "_import_aec3", return_value=FakeAec3Module):
+            adapter = echo_canceller._Aec3(160, 1600, RATE, False)
+            out = adapter.cancel_echo(list(range(-80, 80)), [3] * FRAME)
+        self.assertEqual(out, list(range(-80, 80)))
+        self.assertEqual([c[0] for c in FakeAec3Module.calls[:4]], ["init", "fmt", "rfmt", "delay"])
+        self.assertEqual(FakeAec3Module.calls[1], ("fmt", RATE, 1))
+        self.assertEqual(FakeAec3Module.calls[-2:], [("reverse", FRAME * 2), ("stream", FRAME * 2)])
+
+    @unittest.skipUnless(np is not None, "numpy is not installed")
+    def test_canceller_reports_the_aec3_engine(self):
+        with self._env("aec3"), mock.patch.object(echo_canceller, "_import_aec3", return_value=FakeAec3Module):
+            canceller = echo_canceller.EchoCanceller()
+            self.assertTrue(canceller.ready)
+            self.assertEqual(canceller.status()["engine"], echo_canceller.ENGINE_AEC3)
+            self.assertEqual(echo_canceller.echo_status()["engine"], echo_canceller.ENGINE_AEC3)
+
+    def test_speex_engine_name_stays_for_the_old_backend(self):
+        class Speex:
+            def __init__(self, *_args):
+                pass
+
+        if np is None:
+            self.skipTest("numpy is not installed")
+        with mock.patch.object(echo_canceller, "_load", return_value=(np, Speex, "")):
+            self.assertEqual(echo_canceller.EchoCanceller().status()["engine"], echo_canceller.ENGINE)
+
+    def test_aec3_class_without_the_package_does_not_start(self):
+        with mock.patch.object(echo_canceller, "_import_aec3", return_value=None):
+            with self.assertRaises(RuntimeError):
+                echo_canceller._Aec3(160, 1600, RATE, False)
 
 
 class VoiceRuntimeDegradeTests(unittest.TestCase):

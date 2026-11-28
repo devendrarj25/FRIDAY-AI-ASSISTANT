@@ -657,7 +657,17 @@ describe("environment check is actionable", () => {
 
   it("never calls a tool that is not installed on this run optional or a warning", () => {
     expect(script).not.toContain("optional here");
-    expect(script).not.toContain('"WARN"');
+    // WARN exists only for the five rows that compare this PC with its plan (the Vulkan row is the video driver of a non-NVIDIA GPU, which FRIDAY does not install); a tool that is not installed is never one.
+    expect(
+      [...script.matchAll(/name: "([^"]+)",\s*required: false,\s*warn: true/g)].map((m) => m[1]),
+    ).toEqual([
+      "ONNX Runtime build (cpu, gpu, directml)",
+      "llama.cpp backend (cuda, vulkan, cpu)",
+      "This PC since setup",
+      "Visual C++ runtime version",
+      "Vulkan runtime (vulkan-1.dll)",
+    ]);
+    expect(script.match(/warn: true/g)).toHaveLength(5);
     expect(script).toContain("SKIPPED");
     expect(script).toContain("const notRequiredBecause");
   });

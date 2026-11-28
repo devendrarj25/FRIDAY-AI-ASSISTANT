@@ -7,6 +7,7 @@
   "gitMinimum": "2.49.0",
   "powershellMinimum": "7.5.0",
   "electronMinimum": "45.0.0",
+  "vcRedistMinimum": "14.40.33810",
   "installerPins": {
     "tesseract-ocr-w64-setup-5.4.0.20240606.exe": "c885fff6998e0608ba4bb8ab51436e1c6775c2bafc2559a19b423e18678b60c9"
   },
