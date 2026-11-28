@@ -71,10 +71,14 @@ has() { grep -qxF -- "$1" "$d/$2" 2>/dev/null; }
 case "$*" in
   "release view "*)
     if [ -f "$d/view-error" ]; then echo "HTTP 502: bad gateway" >&2; exit 1; fi
-    has "$3" published && exit 0
+    if has "$3" draftview && [ ! -f "$d/patches" ]; then echo true; exit 0; fi
+    if [ -f "$d/readback-error" ] && has "$3" published && [ -f "$d/patches" ]; then echo "HTTP 502: bad gateway" >&2; exit 1; fi
+    has "$3" published && { echo false; exit 0; }
     echo "release not found" >&2; exit 1 ;;
-  "api repos/owner/repo/git/ref/tags/"*) has "\${2#repos/owner/repo/git/ref/tags/}" tagrefs && exit 0; exit 1 ;;
-  "api repos/owner/repo/releases?per_page=100 --jq"*) [ -f "$d/draft" ] && echo 777; exit 0 ;;
+  "api repos/owner/repo/git/ref/tags/"*)
+    if [ -f "$d/ref-error" ]; then echo "HTTP 403: rate limit" >&2; exit 1; fi
+    has "\${2#repos/owner/repo/git/ref/tags/}" tagrefs && exit 0; echo "Not Found" >&2; exit 1 ;;
+  "api --paginate repos/owner/repo/releases?per_page=100 --jq"*) [ -f "$d/draft" ] && echo 777; exit 0 ;;
   "api -X POST repos/owner/repo/releases "*)
     all="$*"; t="\${all#*tag_name=}"; echo "\${t%% *}" > "$d/draft-tag"; echo 777 > "$d/draft"; echo 777; exit 0 ;;
   "release upload "*)
@@ -284,6 +288,33 @@ suite("release step: Publish missing weight packs (run against stand-ins)", () =
     expect(r.code).toBe(1);
     expect(r.out).toContain(recall.tag);
     expect(r.out).toMatch(/without a release/i);
+    expect(lines(path.join(s.dir, "calls")).some((c) => c.startsWith("api -X POST"))).toBe(false);
+  });
+
+  it("treats a draft left by a cancelled run as missing and rebuilds the pack instead of trusting it", () => {
+    const s = sandbox(withoutRecall);
+    fs.writeFileSync(path.join(s.dir, "draftview"), `${recall.tag}\n`);
+    const r = run(s);
+    expect(r.code).toBe(0);
+    expect(builds(s).length).toBeGreaterThan(0);
+  });
+
+  it("never deletes a release it has already published when the read-back fails", () => {
+    const s = sandbox(withoutRecall);
+    fs.writeFileSync(path.join(s.dir, "readback-error"), "1");
+    const r = run(s);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/NOT deleted/);
+    expect(fs.existsSync(path.join(s.dir, "patches"))).toBe(true);
+    expect(fs.existsSync(path.join(s.dir, "drops"))).toBe(false);
+  });
+
+  it("stops when the tag lookup fails for a reason other than not found", () => {
+    const s = sandbox(withoutRecall);
+    fs.writeFileSync(path.join(s.dir, "ref-error"), "1");
+    const r = run(s);
+    expect(r.code).toBe(1);
+    expect(builds(s)).toEqual([]);
     expect(lines(path.join(s.dir, "calls")).some((c) => c.startsWith("api -X POST"))).toBe(false);
   });
 

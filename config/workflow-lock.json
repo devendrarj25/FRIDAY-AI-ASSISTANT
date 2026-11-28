@@ -7,7 +7,7 @@
     ".github/workflows/main-safety-recovery.yml": "4912918ec885d2f859a0399a95f2210b3ae97e25d3aeeaffaf0c9e8c7983f806",
     ".github/workflows/maintenance.yml": "84009068b5e9a7177c02a60fedde7c0bb2af01f9f02f55fd8d482eef6c64d71c",
     ".github/workflows/pr-validation.yml": "b2bc1cb99a6e53ad7d7e0b721bb07e95840f04b6b9e9282bc94c308c1d200eef",
-    ".github/workflows/release.yml": "bb7799abaaf755db50d1ee3ce5ab5655ee97aad26c8284e0b2fdf4e7962b17c4",
+    ".github/workflows/release.yml": "e7f1ecc11af16b0171d02513ae8ddfaf0dfae5f62a64455a3597c9da1a0c0877",
     ".github/workflows/repository-control.yml": "051917bf0804d7344d9d79e60f19148d414bc87761211f944625b3fc2c80f772",
     ".github/workflows/safe-merge.yml": "1ae0bdcb02469067d7b4c159f387b376fb96017bf16e9789b328be1cb55bf2a9",
     ".github/workflows/security.yml": "2ab1eaea093fa7f3d4b8866c17786b9958329420d768ad657de067b4316b76e6",

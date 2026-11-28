@@ -1839,7 +1839,7 @@ describe("build record and weight packs in the publishing workflows", () => {
     );
     expect(confirm).toContain('gh release view "$ptag"');
     expect(confirm).toContain("2147483648");
-    expect(confirm).toContain(".size > 2147483648");
+    expect(confirm).toContain(".size >= 2147483648");
   });
 
   it("publishes the missing weight packs after the build and before the app release, one model at a time", () => {

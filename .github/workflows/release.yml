@@ -1601,8 +1601,9 @@ jobs:
 
           release_state() {
             local out
-            if out=$(gh release view "$1" --json tagName 2>&1 < /dev/null); then
-              echo exists
+            # Only a PUBLISHED release counts: a draft left by a cancelled run is "missing" (it is removed and rebuilt).
+            if out=$(gh release view "$1" --json isDraft --jq '.isDraft' 2>&1 < /dev/null); then
+              if [ "$out" = false ]; then echo exists; else echo missing; fi
             elif printf '%s' "$out" | grep -qi 'not found'; then
               echo missing
             else
@@ -1619,8 +1620,11 @@ jobs:
               echo "weight pack $pack: release $ptag exists - left exactly as it is"
               continue
             fi
-            if gh api "repos/$repo/git/ref/tags/$ptag" > /dev/null 2>&1 < /dev/null; then
+            if tagout=$(gh api "repos/$repo/git/ref/tags/$ptag" 2>&1 < /dev/null); then
               echo "::error::the tag $ptag exists without a release. It is never moved or rewritten: publish or remove it by hand, then run FRIDAY Release again."
+              exit 1
+            elif ! printf '%s' "$tagout" | grep -qi 'not found'; then
+              echo "::error::could not tell whether the tag $ptag exists: $tagout"
               exit 1
             fi
             echo "weight pack $pack: release $ptag is missing - it will be built and published"
@@ -1634,7 +1638,7 @@ jobs:
           fi
 
           drafts() {
-            gh api "repos/$repo/releases?per_page=100" \
+            gh api --paginate "repos/$repo/releases?per_page=100" \
               --jq ".[] | select(.draft and .tag_name == \"$tag\") | .id" < /dev/null
           }
 
@@ -1660,14 +1664,15 @@ jobs:
               digest=$(printf '%s' "$row" | cut -f2)
               if [ -z "$digest" ]; then
                 asset_id=$(printf '%s' "$row" | cut -f3)
-                digest="sha256:$(gh api -H 'Accept: application/octet-stream' "repos/$repo/releases/assets/$asset_id" < /dev/null | sha256sum | cut -d' ' -f1)"
+                digest="sha256:$(gh api -H 'Accept: application/octet-stream' "repos/$repo/releases/assets/$asset_id" < /dev/null | sha256sum | cut -d' ' -f1)" \
+                  || drop "the digest of $name could not be read back"
               fi
               [ "$digest" = "$want" ] || drop "$name on the draft ($digest) is not the built file ($want)"
             done
           }
 
           publish_pack() {
-            local pack="$1" title="$2" kind mpack model bytes ct2 out need avail f size specs final stale
+            local pack="$1" title="$2" kind mpack model bytes ct2 out need avail free_kb f size specs final stale
             local files=()
             dir="$work/$pack"
             rm -rf "$dir"
@@ -1677,7 +1682,8 @@ jobs:
             # A draft that a cancelled run left for this tag is removed first, so the new draft is the only one.
             for stale in $(drafts); do
               echo "removing a draft left by an earlier run ($stale)"
-              gh api -X DELETE "repos/$repo/releases/$stale" > /dev/null < /dev/null
+              gh api -X DELETE "repos/$repo/releases/$stale" > /dev/null < /dev/null \
+                || drop "the stale draft $stale could not be removed"
             done
             # A draft is not public and creates no tag; the tag appears when the verified draft is published.
             id=$(gh api -X POST "repos/$repo/releases" -f tag_name="$tag" -f target_commitish="$RELEASE_SHA" \
@@ -1691,7 +1697,9 @@ jobs:
 
               # The weights are written, cut into parts and uploaded one model at a time: twice its size plus a margin.
               need=$(( bytes * 2 + margin ))
-              avail=$(( $(df -Pk "$dir" | awk 'NR == 2 { print $4 }') * 1024 ))
+              free_kb=$(df -Pk "$dir" | awk 'NR == 2 { print $4 }') || drop "the free disk space could not be read"
+              case "$free_kb" in '' | *[!0-9]*) drop "the free disk space could not be read (got '$free_kb')" ;; esac
+              avail=$(( free_kb * 1024 ))
               [ "$avail" -ge "$need" ] \
                 || drop "not enough free disk to build $model: $avail bytes free, $need needed ($bytes bytes of weights, twice that while parts are cut, plus $margin)"
 
@@ -1722,7 +1730,7 @@ jobs:
                   SHA256SUMS | NOTICE.md | upload-command.txt | "friday-$pack.json") continue ;;
                 esac
                 size=$(wc -c < "$f" | tr -d '[:space:]')
-                [ "$size" -le "$max_asset" ] \
+                [ "$size" -lt "$max_asset" ] \
                   || drop "$(basename "$f") is $size bytes, over the $max_asset bytes GitHub accepts for one release asset"
                 files+=("$f")
               done
@@ -1774,10 +1782,11 @@ jobs:
             # Published last, and never as the latest release: the app release stays the latest one.
             gh api -X PATCH "repos/$repo/releases/$id" -F "body=@$final/NOTICE.md" -F draft=false -f make_latest=false > /dev/null < /dev/null \
               || drop "the verified draft could not be published"
-            [ "$(release_state "$tag")" = exists ] || drop "the published release $tag cannot be read back"
+            # From here the release is public: it is never deleted again, whatever the read-back says.
+            id=""
+            [ "$(release_state "$tag")" = exists ] || { echo "::error::the published release $tag cannot be read back - it was NOT deleted; check it by hand."; exit 1; }
             echo "published weight pack $tag (every file verified before it became public)"
             summary "- weight pack $tag: published"
-            id=""
             rm -rf "$dir"
           }
 
@@ -1882,11 +1891,11 @@ jobs:
             || { echo "::error::release/friday-bundle.json is missing or invalid."; exit 1; }
           while read -r ptag; do
             [ -n "$ptag" ] || continue
-            gh release view "$ptag" --json tagName > /dev/null 2>&1 < /dev/null \
+            gh release view "$ptag" --json isDraft --jq '.isDraft' 2>/dev/null < /dev/null | grep -qx false \
               || { echo "::error::the build record names the weight pack release $ptag, which does not exist."; exit 1; }
           done < pack-tags.txt
-          big=$(gh release view "$tag" --json assets --jq '.assets[] | select(.size > 2147483648) | .name')
-          [ -z "$big" ] || { echo "::error::an asset of $tag is over 2147483648 bytes: $big"; exit 1; }
+          big=$(gh release view "$tag" --json assets --jq '.assets[] | select(.size >= 2147483648) | .name')
+          [ -z "$big" ] || { echo "::error::an asset of $tag reaches 2147483648 bytes: $big"; exit 1; }
           gh release view "$tag" --json isDraft --jq '.isDraft' | grep -q false \
             || { echo "::error::release is still a draft."; exit 1; }
           gh release view "$tag" --json isPrerelease --jq '.isPrerelease' | grep -q false \
