@@ -616,6 +616,49 @@ describe("copy from a build root uses the strict bundle reader and the config pi
     expect(fs.readFileSync(path.join(outside, "secret.txt"), "utf8")).toBe("secret");
   });
 
+  it("a model folder that holds FRIDAY's own marker files on disk still verifies and is adopted without them", async () => {
+    const checkout = path.join(temp, "checkout");
+    const made = seedBuildRoot(checkout, seeds);
+    const model = "models/friday-voice";
+    write(checkout, `${model}/.friday-pin.json`, '{"revision":"abc"}');
+    write(checkout, `${model}/.friday-complete`, "");
+    write(checkout, `${model}/.cache/huggingface/download/x.metadata`, "meta");
+    write(checkout, `${model}/sub/b.bin.part`, "half");
+    write(checkout, `${model}/sub/b.bin.part.json`, "{}");
+    staged.recordBuildRoot(checkout, { kind: "checkout", env });
+    const report = await staged.adopt(root, { env, pins: made.pins, statfs: roomy });
+    expect(byId(report)).toEqual({ "models/friday-voice": "adopted" });
+    const landed = path.join(root, "models", "friday-voice");
+    expect(fs.readFileSync(path.join(landed, "sub", "b.bin"), "utf8")).toBe("bbbbbb");
+    // The app certifies the folder itself later: nothing of the source's markers is carried over or written here.
+    expect(fs.existsSync(path.join(landed, ".friday-pin.json"))).toBe(false);
+    expect(fs.existsSync(path.join(landed, ".friday-complete"))).toBe(false);
+    expect(fs.existsSync(path.join(landed, ".cache"))).toBe(false);
+    expect(fs.existsSync(path.join(landed, "sub", "b.bin.part"))).toBe(false);
+    // The source keeps everything it had.
+    expect(fs.existsSync(path.join(checkout, model, ".friday-pin.json"))).toBe(true);
+  });
+
+  it("the hash of the copy is still checked when marker files sit beside the weights", async () => {
+    const checkout = path.join(temp, "checkout");
+    const made = seedBuildRoot(checkout, seeds);
+    write(checkout, "models/friday-voice/.friday-pin.json", "{}");
+    write(checkout, "models/friday-voice/.cache/x", "meta");
+    staged.recordBuildRoot(checkout, { kind: "checkout", env });
+    // same size, other bytes: not what the bundle lists
+    write(checkout, "models/friday-voice/a.bin", "evil");
+    expect(byId(await staged.adopt(root, { env, pins: made.pins, statfs: roomy }))).toEqual({
+      "models/friday-voice": "skipped",
+    });
+    expect(fs.existsSync(path.join(root, "models", "friday-voice"))).toBe(false);
+    // a file that is not FRIDAY's own marker still counts as unlisted
+    write(checkout, "models/friday-voice/a.bin", "aaaa");
+    write(checkout, "models/friday-voice/notes.friday-pin.json.txt", "x");
+    expect(byId(await staged.adopt(root, { env, pins: made.pins, statfs: roomy }))).toEqual({
+      "models/friday-voice": "skipped",
+    });
+  });
+
   it("uses the newest installers folder when several versions hold a bundle", async () => {
     const checkout = path.join(temp, "checkout");
     const made = seedBuildRoot(checkout, seeds, "installer/installers/1.10.0.0/friday-bundle.json");

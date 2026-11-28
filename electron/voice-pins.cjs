@@ -1681,6 +1681,7 @@ module.exports = {
   stateOf,
   diskPreflight,
   unexpectedFiles,
+  isOwnFile,
   quarantineFiles,
   moveVerified,
   insideFolder,

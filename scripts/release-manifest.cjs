@@ -156,10 +156,6 @@ function packsOf(root, home = null) {
   );
 }
 
-/** FRIDAY's own marker files and download scratch (the predicate the pin audit uses, not a second list). */
-const isOwnFile = (rel) =>
-  voicePins.unexpectedFiles("", { files: {} }, { list: () => [rel] }).length === 0;
-
 /** Every file under a model folder, or null when it holds a link, a stray entry or an unfinished download. */
 function filesOf(dir) {
   const out = [];
@@ -167,7 +163,8 @@ function filesOf(dir) {
     for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       const full = path.join(folder, entry.name);
-      if (isOwnFile(rel)) continue;
+      // FRIDAY's own marker files and download scratch: the one predicate the pin audit uses.
+      if (voicePins.isOwnFile(rel)) continue;
       if (entry.isDirectory()) {
         if (!walk(full, rel)) return false;
       } else if (entry.isFile() && !UNFINISHED.test(entry.name)) {

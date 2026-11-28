@@ -332,6 +332,48 @@ describe("the build record (friday-bundle.json) travels with every manifest", ()
     ]);
   });
 
+  it("adopts a CMD-built model folder as it is on disk, markers included, and leaves the markers behind", async () => {
+    const s = stage();
+    const put = (rel: string, text: string) => {
+      const file = path.join(s.home, "models", ...rel.split("/"));
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    };
+    put("friday-ear-tiny/config.json", "{}");
+    put("friday-ear-tiny/sub/model.bin", "weights");
+    put("friday-ear-tiny/.friday-pin.json", '{"revision":"abc"}');
+    put("friday-ear-tiny/.friday-complete", "");
+    put("friday-ear-tiny/.cache/huggingface/download/x.metadata", "meta");
+    put("friday-ear-tiny/sub/model.bin.part.json", "{}");
+    run(s, { caller: "cmd" });
+    const staged = require_(path.join(root, "electron/staged-assets.cjs"));
+    const checkout = path.join(s.base, "checkout");
+    fs.mkdirSync(checkout);
+    // The whole folder as the build left it: no filter, so the markers are on disk.
+    fs.cpSync(path.join(s.home, "models"), path.join(checkout, "models"), { recursive: true });
+    fs.copyFileSync(
+      path.join(s.dir, "friday-bundle.json"),
+      path.join(checkout, "friday-bundle.json"),
+    );
+    const env = { APPDATA: path.join(s.base, "appdata") };
+    fs.mkdirSync(env.APPDATA, { recursive: true });
+    staged.recordBuildRoot(checkout, { kind: "checkout", env });
+    const target = path.join(s.base, "FRIDAY");
+    const report = await staged.adopt(target, {
+      env,
+      pins: [
+        { fridayId: "friday-ear-tiny", path: "config.json", bytes: 2, sha256: hex("{}") },
+        { fridayId: "friday-ear-tiny", path: "sub/model.bin", bytes: 7, sha256: hex("weights") },
+      ],
+      statfs: async () => ({ bavail: 10_000, bsize: 1024 ** 3 }),
+    });
+    expect(report.items.map((r: { id: string; result: string }) => [r.id, r.result])).toEqual([
+      ["models/friday-ear-tiny", "adopted"],
+    ]);
+    const landed = path.join(target, "models", "friday-ear-tiny");
+    expect(fs.readdirSync(landed).sort()).toEqual(["config.json", "sub"]);
+  });
+
   it("records a pack folder built by the CMD opt-in as a local source, and keeps the others on the release", () => {
     const s = stage();
     const before = run(s, { caller: "cmd" });

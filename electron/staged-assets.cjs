@@ -39,7 +39,10 @@
  *   * the bundle is read by electron/build-bundle.cjs (strict), found at `<root>/friday-bundle.json`, then
  *     `<root>/release/`, then the newest `<root>/installer/installers/<version>/`. The model must also match the
  *     pin in `config/friday-models.json` (a bundle for an old revision is skipped), the folder must hold exactly
- *     the listed files (a duplicate row, a link or any entry that is neither a plain file nor a folder refuses);
+ *     the listed files (a duplicate row, a link or any entry that is neither a plain file nor a folder refuses).
+ *     FRIDAY's own marker files and scratch (`isOwnFile` of electron/voice-pins.cjs: `.friday-pin.json`,
+ *     `.friday-complete`, `.cache/`, `*.part`, `*.part.json`) are not counted, hashed or copied; the app certifies
+ *     the copy itself afterwards, so no marker is written here;
  *   * free space is checked first, so a model that cannot fit is never hashed on every launch;
  *   * the finished `.adopting` copy is hashed against the manifest BEFORE it is renamed into place, so a source
  *     that changed during the copy ends skipped. A file item is published with a hard link (it never replaces a
@@ -56,6 +59,8 @@ const os = require("node:os");
 const path = require("node:path");
 const buildBundle = require("./build-bundle.cjs");
 const { writeFileSafe } = require("./safe-write.cjs");
+// FRIDAY's own marker files and download scratch: the one predicate the pin audit and the bundle row use.
+const { isOwnFile } = require("./voice-pins.cjs");
 
 const STAGING_NAME = ".friday-dev";
 const POINTER_FILE = "staged-assets.json";
@@ -237,12 +242,15 @@ function candidates(root, env = process.env) {
   return found;
 }
 
-async function treeBytes(target) {
+/** Bytes under `target`; with `skipOwn`, FRIDAY's own marker files and scratch are left out (as the bundle row does). */
+async function treeBytes(target, { skipOwn = false, prefix = "" } = {}) {
   const stat = await fs.promises.lstat(target);
   if (!stat.isDirectory()) return stat.size;
   let total = 0;
   for (const entry of await fs.promises.readdir(target)) {
-    total += await treeBytes(path.join(target, entry));
+    const rel = prefix ? `${prefix}/${entry}` : entry;
+    if (skipOwn && isOwnFile(rel)) continue;
+    total += await treeBytes(path.join(target, entry), { skipOwn, prefix: rel });
   }
   return total;
 }
@@ -325,9 +333,10 @@ async function sha256Of(file) {
 
 /**
  * Every entry under `dir` as a posix path, or null when one is neither a plain file nor a folder (a symlink, a
- * junction, a device). A link is never followed.
+ * junction, a device). A link is never followed. With `skipOwn`, FRIDAY's own marker files and scratch are not listed
+ * (a model folder made by the build carries them; the bundle row never lists them).
  */
-async function walkPlain(dir, prefix = "") {
+async function walkPlain(dir, prefix = "", skipOwn = false) {
   const out = [];
   let entries;
   try {
@@ -337,8 +346,9 @@ async function walkPlain(dir, prefix = "") {
   }
   for (const entry of entries) {
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (skipOwn && isOwnFile(rel)) continue;
     if (entry.isDirectory()) {
-      const inner = await walkPlain(path.join(dir, entry.name), rel);
+      const inner = await walkPlain(path.join(dir, entry.name), rel, skipOwn);
       if (!inner) return null;
       out.push(...inner);
     } else if (entry.isFile()) {
@@ -352,7 +362,7 @@ async function walkPlain(dir, prefix = "") {
 
 /** Does `dir` hold exactly the manifest's files, with their sizes and (when `hash`) their sha256? */
 async function treeMatches(dir, files, hash) {
-  const listed = await walkPlain(dir);
+  const listed = await walkPlain(dir, "", true);
   if (!listed || listed.length !== files.length) return false;
   const want = new Set(files.map((file) => file.path));
   if (want.size !== files.length || listed.some((rel) => !want.has(rel))) return false;
@@ -365,6 +375,9 @@ async function treeMatches(dir, files, hash) {
   return true;
 }
 
+/** `src` as a posix path under `base` ("" for `base` itself). */
+const relativeTo = (base, src) => path.relative(base, src).split(path.sep).join("/");
+
 /**
  * Copy under a random temporary name, check it, then publish it only if the destination is still free.
  * `expected` (the manifest's files) makes the check a hash of the finished copy, not of the source, so bytes
@@ -374,7 +387,15 @@ async function treeMatches(dir, files, hash) {
 async function copyThenRename(from, to, expected = null) {
   const partial = `${to}.${crypto.randomBytes(4).toString("hex")}${PARTIAL_SUFFIX}`;
   try {
-    await fs.promises.cp(from, partial, { recursive: true, force: false, errorOnExist: true });
+    // A verified copy carries only the listed content: the source's markers stay behind, and the app certifies
+    // the folder itself afterwards. A plain move (no manifest) keeps every byte, as the source is removed after.
+    const own = expected ? { filter: (src) => !isOwnFile(relativeTo(from, src)) } : {};
+    await fs.promises.cp(from, partial, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+      ...own,
+    });
     // walkPlain follows a link at the top, so look at the copy itself before it is read or published.
     await refuseLink(partial);
     if (expected) {
@@ -482,7 +503,7 @@ async function verifyAgainstBundle(from, label, buildRoot, pins) {
     const entry = bundle?.models.find((model) => normalDir(model.dir) === label.toLowerCase());
     if (!entry) return false;
     if (!buildBundle.pinWins(entry, buildBundle.pinFromAssets(pins, entry.fridayId))) return false;
-    const listed = await walkPlain(from);
+    const listed = await walkPlain(from, "", true);
     if (!listed || listed.length !== entry.files.length) return false;
     const want = new Set(entry.files.map((row) => row.path));
     if (listed.some((rel) => !want.has(rel))) return false;
@@ -644,7 +665,7 @@ async function adoptFrom(base, root, report, mode, ctx) {
     try {
       if (mode === "copy") {
         // Space first: a model that cannot fit is never hashed, launch after launch.
-        const need = (await treeBytes(from)) + FREE_SPACE_MARGIN;
+        const need = (await treeBytes(from, { skipOwn: true })) + FREE_SPACE_MARGIN;
         const free = await freeBytesAt(to, ctx.statfs).catch(() => null);
         if (free === null || free < need) {
           note(
