@@ -732,7 +732,7 @@ describe("the root guard refuses a drive, a system folder and a folder above the
       w.tree.add(p);
     return w;
   };
-  // An installed FRIDAY folder carries the workspace marker; the allow-list tests below turn it off.
+  // An installed FRIDAY folder carries the workspace marker next to a data folder; the allow-list tests below turn it off.
   const guard = (
     root: string,
     mode: "keep" | "delete",
@@ -740,7 +740,10 @@ describe("the root guard refuses a drive, a system folder and a folder above the
     marked = true,
   ): string => {
     const w = drive(world(over));
-    if (marked) w.tree.add(`${root}\\workspace.json`);
+    if (marked) {
+      w.tree.add(`${root}\\workspace.json`);
+      w.tree.add(`${root}\\database`);
+    }
     w.vars["FridayUnRoot"] = root;
     w.vars["FridayUnMode"] = mode;
     runShipped(w, "Call un.FridayRefuseUnsafeRoot");
@@ -854,20 +857,23 @@ describe("the root guard refuses a drive, a system folder and a folder above the
     // The program folder's parent is the by-design root, with or without a marker; any spelling of it.
     for (const root of ["D:\\Apps\\FRIDAY", "D:/Apps/FRIDAY/", "D:\\Apps\\FRIDAY\\App\\.."])
       expect(guard(root, "delete", {}, false), root).toBe(root);
-    // Each marker FRIDAY itself writes or detects is enough.
-    for (const marker of [
-      "workspace.json",
-      "friday.json",
-      "database\\friday.sqlite3",
-      "database\\friday.db",
-    ]) {
+    // The FRIDAY root shape (the names FridayRootDetect and the folder selector use): the database file alone, or
+    // workspace.json / friday.json together with one of the FRIDAY data folders next to it.
+    const shapes: string[][] = [
+      ["database\\friday.sqlite3"],
+      ["database\\friday.db"],
+      ...["workspace.json", "friday.json"].flatMap((file) =>
+        ["database", "memory", "models", "config"].map((folder) => [file, folder]),
+      ),
+    ];
+    for (const shape of shapes) {
       const w = drive(world());
       w.tree.add("E:\\Stuff");
-      w.tree.add(`E:\\Stuff\\${marker}`);
+      for (const part of shape) w.tree.add(`E:\\Stuff\\${part}`);
       w.vars["FridayUnRoot"] = "E:\\Stuff";
       w.vars["FridayUnMode"] = "delete";
       runShipped(w, "Call un.FridayRefuseUnsafeRoot");
-      expect(w.vars["FridayUnRoot"], marker).toBe("E:\\Stuff");
+      expect(w.vars["FridayUnRoot"], shape.join(" + ")).toBe("E:\\Stuff");
     }
     // A "config" or "database" folder alone is a shape any folder can have: it is not a marker.
     const w = drive(world());
@@ -877,6 +883,28 @@ describe("the root guard refuses a drive, a system folder and a folder above the
     w.vars["FridayUnMode"] = "delete";
     runShipped(w, "Call un.FridayRefuseUnsafeRoot");
     expect(w.vars["FridayUnRoot"]).toBe("");
+  });
+
+  it("a folder holding only workspace.json or friday.json is refused in delete mode, as a monorepo root is", () => {
+    for (const file of ["workspace.json", "friday.json"]) {
+      for (const extra of [[], ["src", "packages", "node_modules"]]) {
+        const w = drive(world());
+        for (const part of ["E:\\Mono", `E:\\Mono\\${file}`, ...extra.map((e) => `E:\\Mono\\${e}`)])
+          w.tree.add(part);
+        w.vars["FridayUnRoot"] = "E:\\Mono";
+        w.vars["FridayUnMode"] = "delete";
+        runShipped(w, "Call un.FridayRefuseUnsafeRoot");
+        expect(w.vars["FridayUnRoot"], `${file} ${extra.join(",")}`).toBe("");
+      }
+    }
+    // The marker does not matter without the data folder, and keep mode still hands the folder to the move guard.
+    const keep = drive(world());
+    keep.tree.add("E:\\Mono");
+    keep.tree.add("E:\\Mono\\workspace.json");
+    keep.vars["FridayUnRoot"] = "E:\\Mono";
+    keep.vars["FridayUnMode"] = "keep";
+    runShipped(keep, "Call un.FridayRefuseUnsafeRoot");
+    expect(keep.vars["FridayUnRoot"]).toBe("E:\\Mono");
   });
 
   it("never refuses an empty pointer, and never invents one", () => {
@@ -1043,17 +1071,34 @@ describe("the preserved folder name is checked again right before the move", () 
     expect(line).not.toContain("Test-Path");
     // A failed move is "not moved" (exit 3); the proof after it reads the folder, not the exit code.
     expect(line).toContain("exit 3");
-    // The only other move is the cross-volume fallback, and it moves the children into a destination that it
-    // had to create itself (New-Item without -Force fails when the folder exists).
-    const create = line.indexOf("New-Item -ItemType Directory -Path $$t -ErrorAction Stop");
-    expect(create).toBeGreaterThan(-1);
-    expect(line.indexOf("GetPathRoot($$f) -ne [System.IO.Path]::GetPathRoot($$t)")).toBeLessThan(
-      create,
-    );
-    expect(line).not.toContain("-Force -ErrorAction Stop");
-    expect([...line.matchAll(/Move-Item/g)]).toHaveLength(1);
-    expect(line.indexOf("Move-Item")).toBeGreaterThan(create);
-    expect(line).not.toContain("Move-Item -LiteralPath $$env:FRIDAY_UN_FROM");
+    // There is no other move: a different volume is refused before anything is touched, never emulated with
+    // a destination created by hand and the children moved one by one (Move-Item moves files across drives,
+    // not folders, which split the data and left every rerun to split it again).
+    const refuse = line.indexOf("GetPathRoot([System.IO.Path]::GetFullPath($$f)) -ne");
+    expect(refuse).toBeGreaterThan(-1);
+    expect(line).toContain("GetPathRoot([System.IO.Path]::GetFullPath($$t))");
+    expect(refuse).toBeLessThan(line.indexOf("[System.IO.Directory]::Move($$f, $$t)"));
+    expect(line.slice(refuse, line.indexOf("[System.IO.Directory]::Move"))).toContain("exit 3");
+    for (const forbidden of [
+      "Move-Item",
+      "Copy-Item",
+      "New-Item",
+      "Get-ChildItem",
+      "Remove-Item",
+      "robocopy",
+      "xcopy",
+      "-Force",
+    ])
+      expect(line, forbidden).not.toContain(forbidden);
+    expect([...line.matchAll(/Directory\]::Move/g)]).toHaveLength(1);
+  });
+
+  it("a different volume stays where it is: the stop message says the data was not moved", () => {
+    const region = guardRegion();
+    const stop = region.slice(region.indexOf('${If} ${FileExists} "$FridayUnRoot\\*.*"'));
+    expect(stop).toContain("never copied to another drive");
+    expect(stop).toContain("Your data is still in: $FridayUnRoot");
+    expect(stop.indexOf("Abort")).toBeGreaterThan(stop.indexOf("never copied to another drive"));
   });
 
   it("a destination that appears makes the helper move nothing: the folder it names is left as it was", () => {

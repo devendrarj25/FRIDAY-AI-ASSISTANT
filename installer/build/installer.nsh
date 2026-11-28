@@ -654,7 +654,8 @@ FunctionEnd
 ; the Documents, Desktop and application data folders are refused the same way. A path Windows cannot place is kept in
 ; keep mode (the data guard counts an unknown path as inside and moves it out) and refused in delete mode. Delete mode
 ; is an allow-list: the folder must be the parent of the program folder (the folder this installation made) or carry a
-; FRIDAY marker (workspace.json, friday.json or the database file FRIDAY writes); a stale or edited pointer to any other
+; FRIDAY root shape (the database file FRIDAY writes, or workspace.json / friday.json next to a data folder: database,
+; memory, models or config; a bare workspace.json is not enough); a stale or edited pointer to any other
 ; folder is never erased. Runs in both modes, on the normalised pointer, so "D:\\", "D:\.", "\\?\D:\" and a junction
 ; to any of them read the same.
 ; In and out: $FridayUnRoot. Reads $FridayUnMode. The scratch registers $R0-$R3 are saved and restored.
@@ -699,11 +700,22 @@ Function un.FridayRefuseUnsafeRoot
             ; folder, or a folder with a marker FRIDAY writes. R2 is free again here (the length test is over).
             StrCpy $R2 "0"
             ${If} $R0 == "$R1"
-            ${OrIf} ${FileExists} "$R0\workspace.json"
-            ${OrIf} ${FileExists} "$R0\friday.json"
-            ${OrIf} ${FileExists} "$R0\database\friday.sqlite3"
+              StrCpy $R2 "1"
+            ${EndIf}
+            ; The FRIDAY root shape, the names FridayRootDetect reports: the database file alone, or a workspace.json /
+            ; friday.json next to at least one FRIDAY data folder. A bare workspace.json is a name any project root has.
+            ${If} ${FileExists} "$R0\database\friday.sqlite3"
             ${OrIf} ${FileExists} "$R0\database\friday.db"
               StrCpy $R2 "1"
+            ${EndIf}
+            ${If} ${FileExists} "$R0\workspace.json"
+            ${OrIf} ${FileExists} "$R0\friday.json"
+              ${If} ${FileExists} "$R0\database\*.*"
+              ${OrIf} ${FileExists} "$R0\memory\*.*"
+              ${OrIf} ${FileExists} "$R0\models\*.*"
+              ${OrIf} ${FileExists} "$R0\config\*.*"
+                StrCpy $R2 "1"
+              ${EndIf}
             ${EndIf}
             ${If} $FridayUnMode == "delete"
             ${AndIf} $R2 == "0"
@@ -874,16 +886,17 @@ FunctionEnd
       ClearErrors
       Rename "$FridayUnRoot" "$4"
       ${If} ${Errors}
-        ; Different volume or a locked handle — copy it out instead. The two folders travel in the environment of
-        ; the helper, not in its command line: an apostrophe in a folder or user name would end the PowerShell
-        ; quote and break the move, or inject a command into it. The helper moves with one call that fails when the
-        ; destination exists, however late it appeared (Directory.Move), so the data is never nested in a folder
-        ; that turned up after the check; a failure is "not moved" (exit 3), and the proof below reads the folder,
-        ; not the exit code. Directory.Move does not cross volumes: then, and only then, the helper creates the
-        ; destination itself (it fails when it exists) and moves the contents into it.
+        ; Different volume or a locked handle. The two folders travel in the environment of the helper, not in its
+        ; command line: an apostrophe in a folder or user name would end the PowerShell quote and break the move, or
+        ; inject a command into it. The helper is all or nothing. It refuses a different volume before touching
+        ; anything (the roots of the two full paths differ: exit 3), because the data is never copied across drives
+        ; and never moved child by child (Move-Item moves files across drives but not folders, which splits the
+        ; data). On one volume it moves with one call that fails when the destination exists, however late it
+        ; appeared (Directory.Move), so the data is never nested in a folder that turned up after the check. A
+        ; failure is "not moved" (exit 3), and the proof below reads the folder, not the exit code.
         System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_FROM", t "$FridayUnRoot")'
         System::Call 'Kernel32::SetEnvironmentVariable(t "FRIDAY_UN_TO", t "$4")'
-        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$f = $$env:FRIDAY_UN_FROM; $$t = $$env:FRIDAY_UN_TO; try { [System.IO.Directory]::Move($$f, $$t) } catch { if ([System.IO.Path]::GetPathRoot($$f) -ne [System.IO.Path]::GetPathRoot($$t)) { try { New-Item -ItemType Directory -Path $$t -ErrorAction Stop | Out-Null; Get-ChildItem -LiteralPath $$f -Force | Move-Item -Destination $$t -Force -ErrorAction SilentlyContinue } catch { exit 3 } } else { exit 3 } }"'
+        nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$f = $$env:FRIDAY_UN_FROM; $$t = $$env:FRIDAY_UN_TO; try { if ([System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($$f)) -ne [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($$t))) { exit 3 }; [System.IO.Directory]::Move($$f, $$t) } catch { exit 3 }"'
         Pop $0
       ${EndIf}
       ; PROOF BEFORE ANYTHING IS REMOVED: the program folder is deleted right after this macro, so the data folder
@@ -892,8 +905,8 @@ FunctionEnd
       ; so. /SD IDOK keeps a silent uninstall (the update path) from waiting for a click; it still stops, and the note
       ; written above stays in the registry.
       ${If} ${FileExists} "$FridayUnRoot\*.*"
-        DetailPrint "Could not move the FRIDAY data folder out of the program folder: $FridayUnRoot (any part already moved is in $4)"
-        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\nAny part that was already moved is in: $4$\r$\n$\r$\nClose FRIDAY and any program using that folder, then run the uninstaller again." /SD IDOK
+        DetailPrint "Could not move the FRIDAY data folder out of the program folder: $FridayUnRoot (any part already moved is in $4). Data is never copied to another drive: when the two folders are on different drives it stays where it is."
+        MessageBox MB_OK|MB_ICONSTOP "FRIDAY could not move your data out of its program folder, so the uninstall was stopped and nothing was removed.$\r$\n$\r$\nYour data is still in: $FridayUnRoot$\r$\nAny part that was already moved is in: $4$\r$\n$\r$\nClose FRIDAY and any program using that folder, then run the uninstaller again. Your data is never copied to another drive: if $4 is on a different drive than your data, the data stays where it is and nothing was changed." /SD IDOK
         Abort
       ${EndIf}
       ${If} ${FileExists} "$4\*.*"

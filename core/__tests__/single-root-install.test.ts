@@ -404,8 +404,17 @@ describe("uninstall executed against a real folder tree", () => {
         // The program folder itself is still removed, so a failed pointer never keeps the uninstall from finishing.
         expect(env.deferred, `${named} ${stale}`).not.toContain(stale);
       }
-      // The same folder, once it carries the marker FRIDAY writes, is the owner's FRIDAY folder and is erased.
+      // A workspace.json alone is a name any project root has (a monorepo): it is not the FRIDAY root shape.
       writeFileSync(join(plain, "workspace.json"), "{}");
+      env.reg["Software\\FRIDAY\\WorkspacePath"] = plain;
+      env.vars["FridayUnRoot"] = named ? plain : "";
+      runNsis(macroBody("customUnInstall"), env);
+      expect(readFileSync(join(plain, "mine.txt"), "utf8"), `${named} marker only`).toBe(
+        "the owner's file",
+      );
+      // The same folder, once it carries the marker FRIDAY writes next to a FRIDAY data folder, is the owner's
+      // FRIDAY folder and is erased.
+      mkdirSync(join(plain, "database"), { recursive: true });
       env.reg["Software\\FRIDAY\\WorkspacePath"] = plain;
       env.vars["FridayUnRoot"] = named ? plain : "";
       runNsis(macroBody("customUnInstall"), env);
