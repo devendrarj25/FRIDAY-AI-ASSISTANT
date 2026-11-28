@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import nodeFs from "node:fs";
 import {
   existsSync,
   lstatSync,
@@ -290,5 +291,160 @@ describe("ensureStructure is idempotent and never destructive (D8)", () => {
       expect(readFileSync(join(folder, rel), "utf8")).toBe(body);
     }
     rmSync(folder, { recursive: true, force: true });
+  });
+});
+
+/** A disk that tells `Models` from `models` (Linux). Windows and macOS fold case, so these cases do not apply. */
+const caseSensitive = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "friday-case-probe-"));
+  try {
+    writeFileSync(join(probe, "a"), "x");
+    return !existsSync(join(probe, "A"));
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
+describe("path service: one scan, alias order, links and checkout roots", () => {
+  it("dir() reads the root once per call, not once per missing candidate", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-dir-scan-"));
+    for (let i = 0; i < 40; i += 1) mkdirSync(join(folder, `entry-${i}`));
+    paths.setRoot(folder);
+    const spy = vi.spyOn(nodeFs, "readdirSync");
+    try {
+      for (const name of ["backend", "models", "installer", "logs"]) {
+        spy.mockClear();
+        const found = paths.dir(name);
+        expect(found.startsWith(resolve(folder))).toBe(true);
+        const rootScans = spy.mock.calls.filter(
+          (call) => resolve(String(call[0])) === resolve(folder),
+        );
+        expect(rootScans.length).toBeLessThanOrEqual(1);
+      }
+    } finally {
+      spy.mockRestore();
+      paths.setRoot(null);
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!caseSensitive)(
+    "migrates data/models even when a differently cased Models folder exists, and keeps both folders' files",
+    () => {
+      const folder = mkdtempSync(join(tmpdir(), "friday-both-models-"));
+      mkdirSync(join(folder, "Models"), { recursive: true });
+      writeFileSync(join(folder, "Models", "upper.bin"), "upper");
+      mkdirSync(join(folder, "data", "models"), { recursive: true });
+      writeFileSync(join(folder, "data", "models", "legacy.bin"), "legacy");
+      paths.setRoot(folder);
+      // The alias order wins: the real second store comes before the case-only spelling.
+      expect(paths.dir("models")).toBe(join(folder, "data", "models"));
+      const result = paths.ensureStructure(folder);
+      paths.setRoot(null);
+      expect(result.migrated).toContainEqual({ from: "data/models", to: "models" });
+      expect(readFileSync(join(folder, "models", "legacy.bin"), "utf8")).toBe("legacy");
+      expect(readFileSync(join(folder, "Models", "upper.bin"), "utf8")).toBe("upper");
+      rmSync(folder, { recursive: true, force: true });
+    },
+  );
+
+  it("still never moves a case-only spelling and never leaves two models folders on a folding disk", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-case-only-"));
+    mkdirSync(join(folder, "Models"), { recursive: true });
+    writeFileSync(join(folder, "Models", "m.bin"), "m");
+    const result = paths.ensureStructure(folder);
+    expect(result.migrated).toEqual([]);
+    expect(readFileSync(join(folder, "Models", "m.bin"), "utf8")).toBe("m");
+    expect(readdirSync(folder).filter((name) => name.toLowerCase() === "models")).toEqual([
+      "Models",
+    ]);
+    rmSync(folder, { recursive: true, force: true });
+  });
+
+  it("verifyRoot reports a folder whose real path is outside the root", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-verify-link-"));
+    const outside = mkdtempSync(join(tmpdir(), "friday-verify-outside-"));
+    mkdirSync(join(folder, "memory"));
+    symlinkSync(outside, join(folder, "downloads"), "junction");
+    symlinkSync(join(outside, "gone"), join(folder, "logs"), "junction");
+    const verdict = paths.verifyRoot(folder);
+    expect(verdict.ok).toBe(true);
+    expect([...verdict.outside].sort()).toEqual(["downloads", "logs"]);
+    expect(paths.verifyRoot(mkdtempSync(join(tmpdir(), "friday-verify-clean-"))).outside).toEqual(
+      [],
+    );
+    rmSync(folder, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("never creates a folder through a link, whether its target is inside or outside the root", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-no-through-"));
+    const outside = mkdtempSync(join(tmpdir(), "friday-no-through-out-"));
+    symlinkSync(outside, join(folder, "updates"), "junction");
+    symlinkSync(outside, join(folder, "tools"), "junction");
+    const result = paths.ensureStructure(folder);
+    expect(readdirSync(outside)).toEqual([]);
+    expect(lstatSync(join(folder, "updates")).isSymbolicLink()).toBe(true);
+    expect(result.created.some((entry: string) => /^(updates|tools)\//.test(entry))).toBe(false);
+    expect(result.existing).toContain("updates");
+    paths.ensureStructure(folder);
+    expect(readdirSync(outside)).toEqual([]);
+    rmSync(folder, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("on a checkout root it creates only the data folders the app writes, and says what it skipped", () => {
+    const folder = mkdtempSync(join(tmpdir(), "friday-checkout-data-"));
+    writeFileSync(join(folder, "package.json"), JSON.stringify({ name: "friday" }));
+    mkdirSync(join(folder, "src"));
+    mkdirSync(join(folder, "kernel"));
+    mkdirSync(join(folder, "tools"));
+    mkdirSync(join(folder, "docs"));
+    const result = paths.ensureStructure(folder);
+    for (const need of [
+      "config",
+      "database",
+      "memory",
+      "models",
+      "voices",
+      "logs",
+      "cache",
+      "runtime",
+      "downloads",
+    ]) {
+      expect(existsSync(join(folder, need))).toBe(true);
+    }
+    for (const stay of [
+      "tools/developer",
+      "tools/system",
+      "assets",
+      "installer",
+      "skills",
+      "agents",
+      "plugins",
+      "docs/Docs",
+      "temporary",
+      "testing",
+      "projects",
+      "backend",
+      "frontend",
+    ]) {
+      expect(existsSync(join(folder, stay))).toBe(false);
+    }
+    expect(readdirSync(join(folder, "tools"))).toEqual([]);
+    expect(result.skipped).toEqual(
+      expect.arrayContaining(["assets", "installer", "skills", "tools", "backend", "frontend"]),
+    );
+    expect(result.skipped).not.toContain("models");
+    // a root that only looks like a checkout (another package name) still gets the full layout
+    const other = mkdtempSync(join(tmpdir(), "friday-not-checkout-"));
+    writeFileSync(join(other, "package.json"), JSON.stringify({ name: "someone-else" }));
+    mkdirSync(join(other, "src"));
+    mkdirSync(join(other, "kernel"));
+    paths.ensureStructure(other);
+    expect(existsSync(join(other, "assets", "icons"))).toBe(true);
+    expect(existsSync(join(other, "tools", "developer"))).toBe(true);
+    rmSync(folder, { recursive: true, force: true });
+    rmSync(other, { recursive: true, force: true });
   });
 });

@@ -102,14 +102,8 @@ function dir(name) {
   const candidates = DIRS[name];
   if (!candidates) throw new Error(`Unknown FRIDAY path: ${name}`);
   const from = profileBase(name);
-  for (const candidate of candidates) {
-    const full = path.join(from, ...candidate.split("/"));
-    if (fs.existsSync(full) && !isProtectedSourceDir(full, name)) return full;
-    // A differently cased copy (`Models`) is the same folder on a case-insensitive disk.
-    const alias = findEntry(from, candidate);
-    if (alias && !isProtectedSourceDir(alias, name)) return alias;
-  }
-  return path.join(from, ...candidates[0].split("/"));
+  const live = liveEntry(from, candidates, name, { spelled: false });
+  return live || path.join(from, ...candidates[0].split("/"));
 }
 
 /** Resolve a folder and make sure it exists (used before a write). */
@@ -146,56 +140,62 @@ function layoutBase(target, name) {
  * never re-created and never overwritten.
  */
 function ensureStructure(target = rootPath) {
-  if (!target) return { root: null, created: [], existing: [], migrated: [] };
+  if (!target) return { root: null, created: [], existing: [], migrated: [], skipped: [] };
   const restored = restoreCheckoutCollisions(target);
   const migrated = migrateLegacy(target);
   const checkout = isCheckoutShaped(target);
+  const dataOnly = isFridayCheckout(target);
   const created = [];
   const existing = [];
+  const skipped = [];
+  const list = scanner();
+  /** Create a folder unless a link sits on the way: a write never lands outside the root through a junction. */
+  const make = (full) => {
+    if (throughLink(target, full)) return false;
+    try {
+      fs.mkdirSync(full, { recursive: true });
+      return true;
+    } catch {
+      return false; /* reported by verifyRoot */
+    }
+  };
   const makeChildren = (parent, name) => {
     for (const child of contract.FOLDERS[name].children) {
-      const live = findEntry(parent, child);
+      const live = findEntry(parent, child, { list: scanner() });
       if (live) {
         existing.push(path.relative(target, live).replace(/\\/g, "/"));
         continue;
       }
       const full = path.join(parent, child);
-      const relative = path.relative(target, full).replace(/\\/g, "/");
-      try {
-        fs.mkdirSync(full, { recursive: true });
-        created.push(relative);
-      } catch {
-        /* reported by verifyRoot */
-      }
+      if (make(full)) created.push(path.relative(target, full).replace(/\\/g, "/"));
     }
   };
   for (const name of NAMES) {
+    if (dataOnly ? !CHECKOUT_DATA_NAMES.has(name) : checkout && CHECKOUT_SOURCE_NAMES.has(name)) {
+      skipped.push(name);
+      continue;
+    }
     const candidates = DIRS[name];
     const base = layoutBase(target, name);
-    const found = candidates
-      .map((candidate) => findEntry(base, candidate))
-      .find((full) => full && !isProtectedSourceDir(full, name));
+    const found = liveEntry(base, candidates, name, { list });
     if (found) {
       existing.push(path.relative(target, found).replace(/\\/g, "/"));
       makeChildren(found, name);
       continue;
     }
-    if (checkout && CHECKOUT_SOURCE_NAMES.has(name)) continue;
     const full = path.join(base, ...candidates[0].split("/"));
-    try {
-      fs.mkdirSync(full, { recursive: true });
+    if (make(full)) {
       created.push(path.relative(target, full).replace(/\\/g, "/"));
       makeChildren(full, name);
-    } catch {
-      /* reported by verifyRoot */
     }
   }
   // TREES segments (skills/core, tools/filesystem, …) live under the live
   // alias of that tree so a legacy `Tools` folder never grows a second `tools`.
+  // A checkout keeps its own source trees: it gets none of them.
   const seen = new Set(
     [...created, ...existing].map((relative) => relative.replace(/\\/g, "/").toLowerCase()),
   );
-  for (const relative of contract.capabilityLayoutFolders()) {
+  for (const relative of dataOnly ? [] : contract.capabilityLayoutFolders()) {
     const slash = relative.indexOf("/");
     if (slash < 0) continue;
     const tree = relative.slice(0, slash);
@@ -203,11 +203,9 @@ function ensureStructure(target = rootPath) {
     const candidates = DIRS[tree];
     if (!candidates) continue;
     const base = layoutBase(target, tree);
-    const found = candidates
-      .map((candidate) => findEntry(base, candidate))
-      .find((full) => full && !isProtectedSourceDir(full, tree));
+    const found = liveEntry(base, candidates, tree, { list });
     const parent = found || path.join(base, ...candidates[0].split("/"));
-    const present = findEntry(parent, rest);
+    const present = findEntry(parent, rest, { list: scanner() });
     const full = present || path.join(parent, ...rest.split("/"));
     const live = path.relative(target, full).replace(/\\/g, "/");
     if (seen.has(live.toLowerCase()) || present) {
@@ -216,15 +214,12 @@ function ensureStructure(target = rootPath) {
       }
       continue;
     }
-    try {
-      fs.mkdirSync(full, { recursive: true });
+    if (make(full)) {
       created.push(live);
       seen.add(live.toLowerCase());
-    } catch {
-      /* reported by verifyRoot */
     }
   }
-  return { root: target, created, existing, migrated, restored };
+  return { root: target, created, existing, migrated, restored, skipped };
 }
 
 /**
@@ -244,15 +239,11 @@ function ensureStructure(target = rootPath) {
  * `exact` demands the literal spelling instead, which migration needs to tell
  * a legacy name from the canonical one. Returns null when nothing matches.
  */
-function findEntry(root, relative, { exact = false } = {}) {
+function findEntry(root, relative, { exact = false, list = readNames } = {}) {
   let current = path.resolve(root);
   for (const segment of String(relative).split("/")) {
-    let entries;
-    try {
-      entries = fs.readdirSync(current);
-    } catch {
-      return null;
-    }
+    const entries = list(current);
+    if (!entries) return null;
     let match = entries.includes(segment) ? segment : null;
     if (!match && !exact) {
       const lower = segment.toLowerCase();
@@ -262,6 +253,61 @@ function findEntry(root, relative, { exact = false } = {}) {
     current = path.join(current, match);
   }
   return current;
+}
+
+/** The names in a folder, or null when it cannot be read. */
+function readNames(folder) {
+  try {
+    return fs.readdirSync(folder);
+  } catch {
+    return null;
+  }
+}
+
+/** A reader that remembers each folder it has listed, so one lookup pass reads a folder once. */
+function scanner() {
+  const memo = new Map();
+  return (folder) => {
+    if (!memo.has(folder)) memo.set(folder, readNames(folder));
+    return memo.get(folder);
+  };
+}
+
+/**
+ * The folder that is live for a canonical name: the first candidate (canonical name, then the historical
+ * aliases, in contract order) that exists with that spelling, and only then a differently cased copy of one
+ * (`Models`), so a real second store (`data/models`) outranks a case-only spelling on a disk that tells them
+ * apart. A link or a dangling link counts as present. `spelled: false` skips the directory read when the
+ * candidate exists exactly as typed.
+ */
+function liveEntry(base, candidates, name, { list = scanner(), spelled = true } = {}) {
+  for (const candidate of candidates) {
+    const typed = path.join(base, ...candidate.split("/"));
+    if (!fs.existsSync(typed)) continue;
+    const full = spelled ? findEntry(base, candidate, { list }) || typed : typed;
+    if (!isProtectedSourceDir(full, name)) return full;
+  }
+  for (const candidate of candidates) {
+    const alias = findEntry(base, candidate, { list });
+    if (alias && !isProtectedSourceDir(alias, name)) return alias;
+  }
+  return null;
+}
+
+/** Is there a link (symlink or junction) on the way from `root` to `full`? Nothing is created through one. */
+function throughLink(root, full) {
+  const relative = path.relative(path.resolve(root), path.resolve(full));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  let current = path.resolve(root);
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 /** Does this relative path exist on disk with EXACTLY this spelling? */
@@ -291,6 +337,37 @@ function isCheckoutShaped(target) {
 }
 
 const CHECKOUT_SOURCE_NAMES = new Set(["backend", "frontend"]);
+
+/**
+ * In FRIDAY's own source checkout used as the folder (package.json named `friday`, next to `src/` and
+ * `kernel/`), only the folders the running app writes into are created. Every other name is either a source
+ * tree of the checkout (agents, skills, tools, docs, installer, ...) or an empty folder nothing needs yet; the
+ * rest appear when something is first written there. `ensureStructure` returns what it skipped.
+ */
+const CHECKOUT_DATA_NAMES = new Set([
+  "config",
+  "database",
+  "memory",
+  "models",
+  "voices",
+  "logs",
+  "cache",
+  "runtime",
+  "downloads",
+  "state",
+  "backups",
+  "updates",
+  "security",
+]);
+
+function isFridayCheckout(target) {
+  if (!isCheckoutShaped(target)) return false;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(target, "package.json"), "utf8")).name === "friday";
+  } catch {
+    return false;
+  }
+}
 
 /** True when `dir` is the Python kernel source tree, not a data folder. */
 function isSourceKernel(dir) {
@@ -399,15 +476,20 @@ function migrateLegacy(target = rootPath) {
   const moved = [];
   if (!target) return moved;
   const checkout = isCheckoutShaped(target);
+  const dataOnly = isFridayCheckout(target);
   for (const name of NAMES) {
     if (checkout && CHECKOUT_SOURCE_NAMES.has(name)) continue;
+    // A source checkout never has a folder renamed into a data name.
+    if (dataOnly && !CHECKOUT_DATA_NAMES.has(name)) continue;
     const candidates = DIRS[name];
     const canonicalRel = candidates[0];
     const canonical = path.join(target, ...canonicalRel.split("/"));
-    // Any spelling of the canonical folder (`Models`) is the live one: it is
-    // used in place, never renamed and never duplicated.
-    if (findEntry(target, canonicalRel)) continue;
+    // The canonical folder is live when it exists with that exact spelling, or when the disk folds case and a
+    // differently cased copy (`Models`) answers to the canonical name: used in place, never renamed or duplicated.
+    // On a disk that tells them apart `Models` is another folder, and a real legacy store still migrates.
+    if (existsExact(target, canonicalRel) || fs.existsSync(canonical)) continue;
     for (const alias of candidates.slice(1)) {
+      if (alias.toLowerCase() === canonicalRel.toLowerCase()) continue;
       if (!existsExact(target, alias)) continue;
       const legacy = path.join(target, ...alias.split("/"));
       if (isProtectedSourceDir(legacy, name)) continue;
@@ -442,7 +524,47 @@ function verifyRoot(target) {
   } catch (error) {
     return { ok: false, error: `${resolved} is not writable: ${error?.message || error}` };
   }
-  return { ok: true, root: resolved, existing: describeExisting(resolved) };
+  return {
+    ok: true,
+    root: resolved,
+    existing: describeExisting(resolved),
+    outside: foldersOutside(resolved),
+  };
+}
+
+/**
+ * Folders in the root (and the required children of the canonical ones) that are links whose real path is not
+ * inside the root, or is gone. They are used as they are, but FRIDAY never creates anything through them, and
+ * the owner is told where his data really lives. Never throws.
+ */
+function foldersOutside(resolved) {
+  const found = [];
+  try {
+    const realRoot = fs.realpathSync(resolved);
+    const stray = (full) => {
+      try {
+        if (!fs.lstatSync(full).isSymbolicLink()) return false;
+        const rel = path.relative(realRoot, fs.realpathSync(full));
+        return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+      } catch {
+        return true;
+      }
+    };
+    for (const entry of fs.readdirSync(resolved)) {
+      if (stray(path.join(resolved, entry))) found.push(entry);
+    }
+    for (const name of NAMES) {
+      const live = findEntry(resolved, name);
+      if (!live || stray(live)) continue;
+      for (const child of contract.FOLDERS[name].children) {
+        const inner = findEntry(live, child);
+        if (inner && stray(inner)) found.push(path.relative(resolved, inner).replace(/\\/g, "/"));
+      }
+    }
+  } catch {
+    /* an unreadable root is reported by the write probe */
+  }
+  return found.sort();
 }
 
 /** What FRIDAY data already lives in a folder (drives migrate/reuse choices). */
