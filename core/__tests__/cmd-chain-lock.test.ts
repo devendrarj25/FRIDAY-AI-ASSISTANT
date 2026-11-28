@@ -1,12 +1,14 @@
 /**
- * The Windows CMD chain (npm run setup, npm run doctor, npm run build:win) ran end to end on the owner's PC and is locked.
+ * The Windows CMD chain (npm run setup, npm run doctor, npm run build:win) ran end to end on the owner's PC.
  * These checks keep its shape and the guides that describe it from drifting apart: the number of steps each command
  * prints, the files the rulebook names, and the facts INSTALL.md gives a person who follows it.
  */
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const require_ = createRequire(import.meta.url);
 const root = path.resolve(__dirname, "..", "..");
@@ -44,10 +46,14 @@ describe("the rulebook and the install guide match the chain", () => {
   const agents = read("AGENTS.md");
   const install = read("INSTALL.md");
 
-  it("AGENTS.md names the locked chain and every file it lists exists", () => {
-    const at = agents.indexOf("### The Windows CMD chain is finished and locked");
-    expect(at).toBeGreaterThan(-1);
-    const block = agents.slice(at, agents.indexOf("### Changing something that already works"));
+  it("AGENTS.md names the CMD chain and every file it lists exists", () => {
+    // The section heading starts "### The Windows CMD chain" (the older heading "... is finished and locked" too)
+    // and runs to the next heading of level 2 or 3.
+    const start = /^### The Windows CMD chain[^\n]*\n/m.exec(agents);
+    expect(start).not.toBeNull();
+    const rest = agents.slice(start!.index);
+    const next = /^#{2,3} /m.exec(rest.slice(start![0].length));
+    const block = next ? rest.slice(0, start![0].length + next.index) : rest;
     const files = [...block.matchAll(/`(scripts\/[a-z0-9-]+\.(?:cjs|ps1|cmd))`/g)].map(
       (m) => m[1]!,
     );
@@ -83,26 +89,33 @@ describe("the rulebook and the install guide match the chain", () => {
   });
 });
 
-describe("the chain's files are locked by content", () => {
+describe("the chain's content lock (dormant by owner policy, available when switched on)", () => {
+  type Kind = "workflows" | "cmd-chain";
   const lock = require_("../../scripts/workflow-lock.cjs") as {
     chainFiles: (base?: string) => string[];
     currentChain: (base?: string) => Record<string, string>;
-    readChainLock: (file?: string) => Record<string, string>;
+    readChainLock: (base?: string) => Record<string, string>;
+    writeChainLock: (base?: string) => void;
+    isEnforced: (kind: Kind, base?: string) => boolean;
+    verify: (kind: Kind, base?: string) => { enforced: boolean; problems: string[] };
     compare: (recorded: Record<string, string>, actual: Record<string, string>) => string[];
   };
+  const script = path.join(root, "scripts", "workflow-lock.cjs");
+  const lockRel = path.join("config", "cmd-chain-lock.json");
 
-  it("records every file AGENTS.md lists, and nothing else", () => {
+  it("the live chain list is the one AGENTS.md names, and the live lock holds while off or on", () => {
     const listed = lock.chainFiles();
     expect(listed).toHaveLength(15);
     expect(listed).toContain("scripts/setup-windows.ps1");
     expect(listed).toContain("scripts/build-windows.cmd");
-    expect(Object.keys(lock.readChainLock()).sort()).toEqual(listed);
+    expect(lock.verify("cmd-chain").problems).toEqual([]);
+    expect(typeof lock.verify("cmd-chain").enforced).toBe("boolean");
   });
 
-  it("fails when a chain file changes without its lock (node scripts/workflow-lock.cjs --cmd-chain --write)", () => {
-    // A change here needs the owner's request or a real log from his PC (AGENTS.md); then the edit and the new
-    // lock land together. A new tool, package or model goes into its catalogue instead.
-    expect(lock.compare(lock.readChainLock(), lock.currentChain())).toEqual([]);
+  it("the live lock file is switched off by owner policy", () => {
+    const body = JSON.parse(read(lockRel)) as { enforced?: unknown };
+    expect(body.enforced).toBe(false);
+    expect(lock.isEnforced("cmd-chain")).toBe(false);
   });
 
   it("names a changed, an added and a removed file", () => {
@@ -111,6 +124,101 @@ describe("the chain's files are locked by content", () => {
       "fresh: added, not in the lock",
       "gone: removed, still in the lock",
     ]);
+  });
+
+  describe("on a temporary copy", () => {
+    let tmp = "";
+    const section = (heading: string) =>
+      [
+        "# Rules",
+        "",
+        "## Changing something that already works",
+        "",
+        heading,
+        "",
+        "The files: `scripts/one.cjs`, `scripts/two.ps1`, `scripts/three.cmd`, `scripts/one.cjs`.",
+        "Nothing else belongs here.",
+        "",
+      ].join("\n");
+    const fixture = (heading: string) => {
+      fs.mkdirSync(path.join(tmp, "scripts"), { recursive: true });
+      fs.mkdirSync(path.join(tmp, "config"), { recursive: true });
+      for (const name of ["one.cjs", "two.ps1", "three.cmd", "other.cjs"]) {
+        fs.writeFileSync(path.join(tmp, "scripts", name), `// ${name}\n`);
+      }
+      fs.writeFileSync(
+        path.join(tmp, "AGENTS.md"),
+        `${section(heading)}\n### GitHub workflows\n\nSee \`scripts/other.cjs\`.\n`,
+      );
+    };
+    const setEnforced = (value: unknown) => {
+      const file = path.join(tmp, lockRel);
+      const body = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+      body["enforced"] = value;
+      fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`);
+    };
+    const cli = (...args: string[]) =>
+      spawnSync(process.execPath, [script, "--cmd-chain", "--root", tmp, ...args], {
+        encoding: "utf8",
+      });
+    const chainList = ["scripts/one.cjs", "scripts/three.cmd", "scripts/two.ps1"];
+
+    beforeEach(() => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), "friday-chain-"));
+    });
+    afterEach(() => {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it.each([
+      ["the current heading", "### The Windows CMD chain (setup, doctor, build)"],
+      ["the older heading", "### The Windows CMD chain is finished and locked"],
+    ])("lists exactly the files the section names, under %s", (_label, heading) => {
+      fixture(heading);
+      expect(lock.chainFiles(tmp)).toEqual(chainList);
+      lock.writeChainLock(tmp);
+      expect(Object.keys(lock.readChainLock(tmp))).toEqual(chainList);
+    });
+
+    it("writing throws and writes nothing when the section is missing or renamed", () => {
+      fixture("### A renamed heading");
+      expect(lock.chainFiles(tmp)).toEqual([]);
+      expect(() => lock.writeChainLock(tmp)).toThrow(/lists no CMD chain files/);
+      expect(fs.existsSync(path.join(tmp, lockRel))).toBe(false);
+      const run = cli("--write");
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("lists no CMD chain files");
+    });
+
+    it("enforced true: unchanged holds, a changed file fails, the CLI follows", () => {
+      fixture("### The Windows CMD chain (setup, doctor, build)");
+      lock.writeChainLock(tmp);
+      setEnforced(true);
+      expect(lock.verify("cmd-chain", tmp)).toEqual({ enforced: true, problems: [] });
+      expect(cli().status).toBe(0);
+      fs.appendFileSync(path.join(tmp, "scripts", "two.ps1"), "# edit\n");
+      expect(lock.verify("cmd-chain", tmp).problems).toEqual([
+        "scripts/two.ps1: changed since it was locked",
+      ]);
+      const run = cli();
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain("scripts/two.ps1: changed since it was locked");
+      expect(cli("--write").status).toBe(0);
+      expect(lock.isEnforced("cmd-chain", tmp)).toBe(true);
+      expect(cli().status).toBe(0);
+    });
+
+    it("enforced false: a changed file passes, the CLI says the lock is off, --write keeps it off", () => {
+      fixture("### The Windows CMD chain (setup, doctor, build)");
+      lock.writeChainLock(tmp);
+      fs.appendFileSync(path.join(tmp, "scripts", "two.ps1"), "# edit\n");
+      expect(lock.verify("cmd-chain", tmp)).toEqual({ enforced: false, problems: [] });
+      const run = cli();
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain("lock is off");
+      expect(cli("--write").status).toBe(0);
+      expect(lock.isEnforced("cmd-chain", tmp)).toBe(false);
+    });
   });
 });
 

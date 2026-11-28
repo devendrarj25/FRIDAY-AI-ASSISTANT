@@ -11,7 +11,7 @@ DIFF/EVIDENCE, then PASS or BLOCK.
 
 1. Classify the request with the table below. Write a short task id.
 2. Name the canonical owner. Do not add a second router, store, installer, or scheduler.
-3. List the files that may change, and the locked files that may not.
+3. List the files that may change, and the files that must not (the locked look of FRIDAY unless the owner asked for it, and anything outside the boundary).
 4. Read callers before editing. If a file outside the list is required, add it to the list first.
 5. Make the smallest change that delivers the behaviour.
 6. Run the tests that cover that owner.
@@ -23,17 +23,17 @@ DIFF/EVIDENCE, then PASS or BLOCK.
 
 ## Task packet
 
-| Field               | What it holds                                                            |
-| ------------------- | ------------------------------------------------------------------------ |
-| TASK_ID             | Short slug for this change                                               |
-| CANONICAL_OWNER     | The existing module that already owns the behaviour                      |
-| ALLOWED_FILES       | Every file the change may edit                                           |
-| FORBIDDEN_FILES     | Locked paths and anything outside the boundary                           |
-| DIRECT_DEPENDENCIES | Callers of those files                                                   |
-| AFFECTED_BOUNDARIES | Runtime, build, installer, updater, memory, routing, capabilities, or UI |
-| REQUIRED_TESTS      | The test files that must stay green                                      |
-| ROLLBACK_PLAN       | How to undo the diff                                                     |
-| EVIDENCE            | Commands and counts after the change                                     |
+| Field               | What it holds                                                             |
+| ------------------- | ------------------------------------------------------------------------- |
+| TASK_ID             | Short slug for this change                                                |
+| CANONICAL_OWNER     | The existing module that already owns the behaviour                       |
+| ALLOWED_FILES       | Every file the change may edit                                            |
+| FORBIDDEN_FILES     | The locked look unless the owner asked, and anything outside the boundary |
+| DIRECT_DEPENDENCIES | Callers of those files                                                    |
+| AFFECTED_BOUNDARIES | Runtime, build, installer, updater, memory, routing, capabilities, or UI  |
+| REQUIRED_TESTS      | The test files that must stay green                                       |
+| ROLLBACK_PLAN       | How to undo the diff                                                      |
+| EVIDENCE            | Commands and counts after the change                                      |
 
 More than one boundary is high-impact: analyse both sides and add the tests each side would otherwise miss.
 

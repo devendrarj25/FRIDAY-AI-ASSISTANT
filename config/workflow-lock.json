@@ -1,5 +1,6 @@
 {
-  "note": "SHA-256 of every workflow and composite action, line endings normalised. Changed only with the owner's request and second yes; see AGENTS.md, GitHub workflows stay locked. Refresh with: node scripts/workflow-lock.cjs --write",
+  "note": "SHA-256 of every workflow and composite action, line endings normalised. Dormant by owner policy: enforced is false, so nothing is checked. To re-lock, run: node scripts/workflow-lock.cjs --write, then set enforced to true.",
+  "enforced": false,
   "files": {
     ".github/workflows/auto-recover.yml": "17363d259f144baa42261b128bf0308f5f77eb4d9f2506f4a6c705d7515443e0",
     ".github/workflows/branch-cleanup.yml": "dc5d31b8aab2a476616d98fa7e3432566058509b8a780c02a69a616b24cc21d8",

@@ -403,9 +403,9 @@ describe("the CMD chain keeps its shape", () => {
     expect(source).not.toMatch(/build-friday-models/);
   });
 
-  it("config/cmd-chain-lock.json matches the files it locks (node scripts/workflow-lock.cjs --cmd-chain --write)", () => {
+  it("the CMD chain lock holds when it is switched on", () => {
     const lock = req("../../scripts/workflow-lock.cjs");
-    expect(lock.compare(lock.readChainLock(), lock.currentChain())).toEqual([]);
+    expect(lock.verify("cmd-chain").problems).toEqual([]);
   });
 
   it("place-build.cjs is ASCII text and reads the bundle record only through the one shared module", () => {

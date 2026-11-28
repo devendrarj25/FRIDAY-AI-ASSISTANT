@@ -40,9 +40,13 @@ Public FRIDAY is four-part (`1.0.0.0`); `package.json` `version` is the npm/elec
 
 **Ask the owner first**
 
-- A change to `.github/workflows/` or `.github/actions/` (it needs a second yes, see GitHub workflows stay locked).
+- A change to the locked look: text, font, UI, design, graphics, color, logo, theme, or animation (see Locked: the look of FRIDAY).
 - A version bump, a change of publisher identity, or reverting a Deliberate design decision.
 - Pulling or merging a pull request (only on his explicit request, as `devendrarj25`).
+
+**Locked**
+
+- The look of FRIDAY and nothing else: text, font, UI, design, graphics, color, logo, FRIDAY logo, FRIDAY graphic, theme, and animation. No change without the owner's yes in that message (see Locked: the look of FRIDAY). Everything else may be changed with care (see Changing something that already works).
 
 **Never**
 
@@ -68,7 +72,7 @@ The generated list of every registered document is [docs/README.md](docs/README.
 | What FRIDAY is today, gaps, next work | [FRIDAY_STATE.md](FRIDAY_STATE.md) |
 | What is verified, with the evidence | [AUDIT.md](AUDIT.md) |
 | Layers, IPC, how processes meet | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Locked folder and subsystem baseline | [docs/FRIDAY_ARCHITECTURE_BASELINE.md](docs/FRIDAY_ARCHITECTURE_BASELINE.md) |
+| Folder and subsystem baseline | [docs/FRIDAY_ARCHITECTURE_BASELINE.md](docs/FRIDAY_ARCHITECTURE_BASELINE.md) |
 | Every feature, its file, its test | [docs/FRIDAY_FEATURES.md](docs/FRIDAY_FEATURES.md) |
 | How to use the app | [docs/FRIDAY_USER_GUIDE.md](docs/FRIDAY_USER_GUIDE.md) |
 | Install, setup, first launch | [INSTALL.md](INSTALL.md) |
@@ -102,7 +106,7 @@ The generated list of every registered document is [docs/README.md](docs/README.
 | `memory/`, `database/`, `brain-data/`, `conversations/` | Local stores. Install and uninstall do not wipe them |
 | `models/`, `system/`, `resources/`, `public/` | Model assets, system files, static resources |
 | `testing/`, `debug/`, `temporary/`, `backup/`, `releases/` | Fixtures, scratch, backup, and published notes |
-| `.github/` | The eleven workflows. Do not add a twelfth |
+| `.github/` | The eleven workflows and their composite actions. Add a workflow only when no existing one fits |
 | `AGENTS.md`, `AUDIT.md`, `FRIDAY_STATE.md` | This rulebook, the evidence tables, and the live briefing, at the repo root |
 
 ## Commands
@@ -119,7 +123,7 @@ Run from the repo root. `npm ci` installs Node dependencies. `npm run setup:pyth
 
 The owner writes in Hindi, English, or Hinglish, often loosely. Read the whole message and the chat. Treat screenshots, logs, and pasted output as evidence and pull the exact error lines and numbers from them.
 
-1. **A full prompt from the owner is the task.** Follow it as written. Check its factual claims (file names, tests, behaviours) against the repo first, because prompts go stale. Where it collides with a hard rule here (a workflow edit that needs a second yes, identity, a version bump, a safety invariant), say so once, do everything else, and list that one item at the end.
+1. **A full prompt from the owner is the task.** Follow it as written. Check its factual claims (file names, tests, behaviours) against the repo first, because prompts go stale. Where it collides with a hard rule here (a change to the locked look, identity, a version bump, a safety invariant), say so once, do everything else, and list that one item at the end.
 2. **A loose request** ("Friday me ye problem aa rahi hai", "ye upgrade karo", "ye theek karo") becomes one precise prompt before any work. Print it in at most eight lines: the goal in plain words, the scope and owning module, the constraints that apply, and three to six ordered steps with what "done" means for each. Then continue without waiting. If two readings differ materially, take the safest reversible one and name it.
 3. **Ask only when blocked:** where this file demands the owner's words (see "Ask the owner first"), or when a needed secret or file exists nowhere.
 4. **Classify it:** a fix, an upgrade, a new feature, a look change, or a question. A question gets an answer from the repo or the web and changes nothing.
@@ -191,7 +195,7 @@ Never delete, skip, weaken, or fake-pass a test. New behaviour gets its own test
 **While working,** run only what the change can affect (How to work, step 6). **At the end, run the full set once,** and fix every failure the work caused before calling the task done:
 
 - `npm run preflight -- --full`, or on a machine that cannot, the commands below one by one.
-- `npm test` (includes the locked set, the independence regex scan, and `core/__tests__/stable-section.test.ts`), `npm run lint`, `npm run typecheck`, `npm run typecheck:py`, `npm run test:kernel`.
+- `npm test` (includes the contract tests, the independence regex scan, and `core/__tests__/stable-section.test.ts`), `npm run lint`, `npm run typecheck`, `npm run typecheck:py`, `npm run test:kernel`.
 - `npm run docs:sync` then `npm run docs:check` when any Markdown or registry document changed.
 - `npm run arrange:check` when layout, folders, or ownership changed.
 - `npm run check:provenance` when product text or commits could carry a tool mark.
@@ -233,50 +237,67 @@ The owner runs every GitHub Actions workflow: PR Validation, FRIDAY Test Build, 
 
 **Never break what works.** The owner verified on the Windows PC: GitHub Actions, the official publish path (FRIDAY Release), the local CMD EXE build (`scripts\build-windows.cmd`), install, uninstall, reinstall, update, boot, and the app opening. After any change:
 
-- The CMD build, NSIS installer, portable EXE, install, uninstall, reinstall, and in-app update and rollback keep today's behaviour.
-- All eleven workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees.
+- The CMD build, NSIS installer, portable EXE, install, uninstall, reinstall, and in-app update and rollback keep working. A change to them keeps their behaviour or moves its tests and documents in the same change.
+- The workflows in [docs/FRIDAY_GITHUB_ACTIONS.md](docs/FRIDAY_GITHUB_ACTIONS.md) keep their triggers, permissions, and guarantees unless that change is the point of the work and its tests and document move with it.
 - User data under `<FRIDAY_ROOT>` is never destroyed by install, update, rollback, or app-only uninstall.
+- A stored setting is honoured.
 - Linux-only evidence is not a Windows verification. Say "unverified" for a path that was not run on Windows.
 
-**The look of the app stays:** colors, graphics, typography, spacing, icon style, and motion character do not change outside the owner's direction. Inside the Flow Studio canvas the drawing uses canvas tokens on the same theme, in light and in dark. New features, buttons, controls, panels, pages, and functions may be added, built from the existing design tokens and shared components so they look native. A stored setting must be honoured.
+Canonical files whose tests always re-run when they are touched: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md`, Deliberate design decisions.
 
-**Locked areas may be changed** only when the owner asks for that change, or when the task cannot be finished without it. The set is UI organization, EXE install, update and uninstall, GitHub Actions, FRIDAY Release, and the Windows CMD pack. Canonical files that always re-run their tests: `src/lib/friday/navigation.ts`, `electron/update-safety.cjs`, and the project-independence guarantees. The facts that stay true are in `FRIDAY_STATE.md`, Deliberate design decisions.
+## Locked: the look of FRIDAY
 
-### The Windows CMD chain is finished and locked
+This is the only locked area. **The look of the app stays**: nobody changes it by accident.
 
-`npm run setup`, `npm run doctor` and `npm run build:win` ran end to end on the owner's Windows PC on 2026-11-20 (FRIDAY 1.1.5.7) and ended `SETUP PASS`, `DOCTOR PASS` and `FRIDAY BUILD READY`, with the installer and the portable EXE verified. That chain is done. It is changed only when the owner asks for that change, or when a real log from his PC shows a failure or a wrong line. A hunch, a tidy-up, a "better" method, or a speed idea is not a reason.
+**What is locked.** The text the app shows (labels, headings, buttons, messages, wording), fonts and typography, the UI (layout, spacing, pages, navigation, controls), the design and the FRIDAY Glass theme, graphics and icons, colors, the logo, the FRIDAY logo, the FRIDAY graphic, and animation and motion. Inside the Flow Studio canvas the drawing uses canvas tokens on the same theme, in light and in dark.
 
-The files that make it up: `scripts/setup-windows.ps1`, `scripts/build-windows.cmd`, `scripts/build-pipeline.cjs`, `scripts/doctor.cjs`, `scripts/check-environment.cjs`, `scripts/setup-python.cjs`, `scripts/prefetch-toolkit.cjs`, `scripts/prefetch-models.cjs`, `scripts/ensure-electron.cjs`, `scripts/stage-toolchain.cjs`, `scripts/electron-pack.cjs`, `scripts/verify-build.cjs`, `scripts/live-console.cjs`, `scripts/console-bar.cjs`, `scripts/download-board.cjs`.
+**What locked means.** No change to any of it without the owner's yes in that message. A request to fix, upgrade, or tidy something else is not a yes for the look, and neither is a hunch that something would look better. A reviewed rename of a control label is a change to the look too.
 
-When a change in them is asked for:
+**When the owner asks for a change.**
 
-- Keep the shape of the output: `Step N of 9` in setup (and none inside the build), `doctor N/10`, `build N/13`, the closing lines `SETUP PASS`, `DOCTOR PASS` and the `FRIDAY BUILD READY` table with `PASS` and `SKIP` rows.
-- Keep the look of the console: a green `√` (a red `×` on failure), grey detail text in purple, progress bars as a green row of `▬` (red when failed, dark grey for the rest), white and cyan text as they are, and plain text bars where there is no real console.
-- Keep what the build leaves alone on purpose: readiness and the installer smoke are skipped on a local build, and the build repeats the PC checks of setup.
-- `setup-windows.ps1` stays 7-bit ASCII with CRLF line ends, and glyphs are written as `[char]0x…`. Check it with the PowerShell parser before the push.
-- The tests and the documents that describe the chain ([INSTALL.md](INSTALL.md), [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md), `FRIDAY_STATE.md`) move in the same change. What was only run on Linux is written as unverified until the owner runs it on Windows.
+1. Change only what he named. Build it from the existing design tokens and shared components (`src/styles.css`, `src/components/friday/ui.tsx`), so it looks native in light and dark, Glass and Classic.
+2. Keep every existing control and navigation row working (`core/__tests__/ui-control-parity.test.ts`, `core/__tests__/navigation-registry.test.ts`, `core/__tests__/ui-live-honesty.test.ts` guard them). A page keeps its loading, empty, error with Retry, and offline states, keyboard order, and accessible names.
+3. Update the tests and the owning document in the same change, run the tests that cover the page, and say what is unverified on the packaged app.
+4. A feature he asks for may bring its own new controls, panels, or pages, built the same way. His request is the yes for that new surface, and nothing that already exists changes.
 
-### Changing something that already works
+## Changing something that already works
 
-1. Keep the old behaviour working: same CMD build, same install, uninstall, reinstall and update, same Actions triggers, same look.
+Everything outside the look may be changed when the work needs it. Change it with care: nothing that works may break, and no new problem may be created.
+
+1. Read the callers and the tests that pin the file before editing it. Keep the old behaviour working: the CMD build, install, uninstall, reinstall and update, the Actions triggers, user data.
 2. Update the tests that encode that behaviour in the same landing, with equal or stronger assertions (the no-weakening rule in Checks applies). Add a targeted test only when a real contract is missing.
 3. Update the owning document and `FRIDAY_STATE.md` in the same landing.
 4. A fix is the smallest verified step, not a rewrite. An upgrade follows Research-led upgrades.
-5. In a locked area, hunt for bugs and weak spots and fix them in the same change, and make the area work again before the session ends.
-6. Run the tests that cover the area and the locked set below. A change that cannot be re-checked on the owner's PC stays unverified until the owner re-checks.
+5. In install, update, uninstall, release, the workflows, or the CMD chain, hunt for bugs and weak spots and fix them in the same change, and make the area work again before the session ends.
+6. Run the tests that cover the area and the contract tests below. A change that cannot be re-checked on the owner's PC stays unverified until the owner re-checks.
 
-The locked set, in default `npm test`: `core/__tests__/project-independence.test.ts`, `core/__tests__/ui-live-honesty.test.ts`, `core/__tests__/navigation-registry.test.ts`, `core/__tests__/safe-update.test.ts`, `core/__tests__/github-release-installer.test.ts`, `core/__tests__/clean-install-contract.test.ts`.
+The contract tests, in default `npm test`: `core/__tests__/project-independence.test.ts`, `core/__tests__/ui-live-honesty.test.ts`, `core/__tests__/navigation-registry.test.ts`, `core/__tests__/safe-update.test.ts`, `core/__tests__/github-release-installer.test.ts`, `core/__tests__/clean-install-contract.test.ts`.
 
-### GitHub workflows stay locked
+**Hash locks are off.** `config/workflow-lock.json` and `config/cmd-chain-lock.json` can record the SHA-256 of the workflow files and of the CMD chain. Both are switched off (`"enforced": false`), so editing those files does not fail a test. The owner switches them on again when he wants those areas frozen: set `enforced` to true and refresh with `node scripts/workflow-lock.cjs --write` (workflows) or `node scripts/workflow-lock.cjs --cmd-chain --write` (CMD chain). Do not switch them on yourself.
 
-The eleven files under `.github/workflows/` and the composite actions under `.github/actions/` stay as they are. Do not tidy, refactor, or improve them. Do not add a twelfth workflow.
+### The Windows CMD chain (setup, doctor, build)
 
-If the owner asks for a change there, ask once more whether to make it, and edit only after he answers with a second yes or ok. The first request is not that answer. If other work cannot be finished without a change there:
+`npm run setup`, `npm run doctor` and `npm run build:win` ran end to end on the owner's Windows PC on 2026-11-20 (FRIDAY 1.1.5.7) and ended `SETUP PASS`, `DOCTOR PASS` and `FRIDAY BUILD READY`, with the installer and the portable EXE verified. Later changes to them are unverified on Windows until he runs them again.
 
-- make the smallest change;
+The files that make it up: `scripts/setup-windows.ps1`, `scripts/build-windows.cmd`, `scripts/build-pipeline.cjs`, `scripts/doctor.cjs`, `scripts/check-environment.cjs`, `scripts/setup-python.cjs`, `scripts/prefetch-toolkit.cjs`, `scripts/prefetch-models.cjs`, `scripts/ensure-electron.cjs`, `scripts/stage-toolchain.cjs`, `scripts/electron-pack.cjs`, `scripts/verify-build.cjs`, `scripts/live-console.cjs`, `scripts/console-bar.cjs`, `scripts/download-board.cjs`.
+
+When you change them:
+
+- Keep the shape of the output: `Step N of 9` in setup (and none inside the build), `doctor N/10`, `build N/13`, the closing lines `SETUP PASS`, `DOCTOR PASS` and the `FRIDAY BUILD READY` table with `PASS`, `NOTICE` and `SKIP` rows.
+- Keep the look of the console: a green `√` (a red `×` on failure), grey detail text in purple, progress bars as a green row of `▬` (red when failed, dark grey for the rest), white and cyan text as they are, and plain text bars where there is no real console.
+- Keep what the build leaves alone on purpose: readiness and the installer smoke are skipped on a local build, and the build repeats the PC checks of setup.
+- A failed download or an optional install is a notice and never stops setup, Doctor, or the build; only a real blocker fails (Node.js, npm, the dependency install, Electron, the packaging tools). `FRIDAY_SETUP_STRICT=1` turns notices back into failures.
+- `setup-windows.ps1` stays 7-bit ASCII with CRLF line ends, and glyphs are written as `[char]0x…`. Check it with the PowerShell parser before the push.
+- The tests and the documents that describe the chain ([INSTALL.md](INSTALL.md), [docs/FRIDAY_BUILD_AND_RELEASE.md](docs/FRIDAY_BUILD_AND_RELEASE.md), `FRIDAY_STATE.md`) move in the same change. What was only run on Linux is written as unverified until the owner runs it on Windows.
+
+### GitHub workflows
+
+The workflow files under `.github/workflows/` and the composite actions under `.github/actions/` may be changed when the work needs it; no second yes is asked. They are shared by every pull request and every release, so change them with the most care:
+
+- make the smallest change, and never tidy, refactor, or improve a workflow for its own sake;
 - read the effect on every workflow that shares that behaviour, and fix every error it causes in the same change;
-- validate the YAML locally (parse plus the workflow tests);
-- mark hosted Actions unverified until the owner runs them.
+- validate the YAML locally (parse plus the workflow tests), and move `docs/FRIDAY_GITHUB_ACTIONS.md` and the tests that describe the workflows in the same change;
+- mark hosted Actions unverified until the owner runs them. An agent never runs, reruns, cancels, or dispatches one.
 
 ## Safety invariants
 
@@ -305,7 +326,7 @@ Use this for an upgrade. A bug fix stays the smallest change that keeps today's 
 
 ## Owner directive and build autonomy
 
-FRIDAY is the owner's private personal assistant, and his instruction for a task is final. Decide, build, and report. Do not stop a build to ask permission, and do not leave a list of decisions for later. Workflow files are the one exception (see GitHub workflows stay locked); running a workflow is never an exception.
+FRIDAY is the owner's private personal assistant, and his instruction for a task is final. Decide, build, and report. Do not stop a build to ask permission, and do not leave a list of decisions for later. Running a workflow is never an exception.
 
 **Free and open-source tools** may be installed from npm, PyPI, or an official GitHub release.
 
@@ -366,7 +387,7 @@ A task is not finished until all of these are true:
 
 1. The request is implemented in the existing single implementation, with no duplicate, stray, or badly named file.
 2. The CMD build, install, uninstall, reinstall, update, app opening, repository Actions, and publishing still behave as before, or their tests and docs moved with the change and the old behaviour still works.
-3. The full checks ran, every failure was fixed, and every suite is green, including the locked set if those files were touched.
+3. The full checks ran, every failure was fixed, and every suite is green, including the contract tests if those files were touched.
 4. `FRIDAY_STATE.md` is current and honest, and every affected document matches the code, is registered, and is free of duplicates.
 5. Version, What's New, and changelog files were not hand-scattered, and `verify:version` is green if version-governed docs changed.
 6. Nothing was force-pushed, no workflow was started, and every commit and the pull request text carry only `devendrarj25`, with no attribution line (the body was read back).

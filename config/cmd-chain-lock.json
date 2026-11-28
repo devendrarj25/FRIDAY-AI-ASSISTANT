@@ -1,5 +1,6 @@
 {
-  "note": "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names under 'The Windows CMD chain is finished and locked'. Changed only on the owner's request or a real log from his PC; a new tool, package or model is added through its catalogue, not here (docs/FRIDAY_BUILD_AND_RELEASE.md). Refresh with: node scripts/workflow-lock.cjs --cmd-chain --write",
+  "note": "SHA-256 of every file of the Windows CMD chain (npm run setup, doctor, build:win), line endings normalised. The list is the one AGENTS.md names in its Windows CMD chain section. Dormant by owner policy: enforced is false, so nothing is checked. To re-lock, run: node scripts/workflow-lock.cjs --cmd-chain --write, then set enforced to true.",
+  "enforced": false,
   "files": {
     "scripts/build-pipeline.cjs": "6962223c601ea0d502e9a9126e0fe0f7cddfd090154df65ace66ba55a2fc7b13",
     "scripts/build-windows.cmd": "d7aae9b5382d9fd42fae98185f5ecdd35cfbd0948774fa2bf6e7bd9abe60e558",

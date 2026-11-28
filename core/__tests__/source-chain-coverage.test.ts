@@ -70,9 +70,9 @@ const KNOWN_GAPS = {
   /** `releases/latest` strings outside vendor-sources.cjs that bypass the source chain (counts per file). */
   rawLatestUrl: {
     reason:
-      "scripts/setup-windows.ps1 (PowerShell, locked CMD chain) reads FRIDAY's own repos with a direct releases/latest call; the four JS sites were routed through resolveLatest and left this list",
+      "scripts/setup-windows.ps1 (PowerShell, CMD chain) reads FRIDAY's own repos with a direct releases/latest call; the four JS sites were routed through resolveLatest and left this list",
     files: {
-      // The locked setup script (PowerShell, no access to the JS chain) reads FRIDAY's own two repos. Owner's call.
+      // The setup script (PowerShell, no access to the JS chain) reads FRIDAY's own two repos. Owner's call.
       "scripts/setup-windows.ps1": 1,
     } as Record<string, number>,
   },

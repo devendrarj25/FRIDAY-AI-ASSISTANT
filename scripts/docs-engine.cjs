@@ -130,7 +130,7 @@ const DOCUMENTS = [
     title: "FRIDAY — Architecture Baseline",
     section: "architecture",
     audience: "developers, contributors",
-    answers: "The locked folder and subsystem baseline the architecture audit enforces",
+    answers: "The folder and subsystem baseline the architecture audit enforces",
     topic: "Architecture baseline and drift detectors",
   },
   {

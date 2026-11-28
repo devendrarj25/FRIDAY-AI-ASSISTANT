@@ -36,7 +36,13 @@ describe("AGENTS.md anchors", () => {
     expect(text).toContain("Flow Studio canvas");
     expect(text).toContain("Full autonomy");
     expect(text).toContain("The look of the app stays");
-    expect(text).toContain("Locked areas may be changed");
+    expect(text).toContain("## Locked: the look of FRIDAY");
+    expect(text).toMatch(
+      /text, font, UI, design, graphics, color, logo, FRIDAY logo, FRIDAY graphic, theme, and animation/,
+    );
+    expect(text).toContain("No change to any of it without the owner's yes in that message");
+    expect(text).not.toContain("Locked areas may be changed");
+    expect(text).not.toContain("stay locked");
     expect(text).toContain("## Assistant standard (voice and Auto mode)");
     expect(text).toContain("unverified until the owner re-checks");
     expect(text).toContain("copyleft (GPL or LGPL) voice component");
@@ -58,12 +64,13 @@ describe("AGENTS.md anchors", () => {
     expect(text).toContain("If a run is already going, read its logs and fix the code");
     expect(text).toContain("Do not merge a pull request");
     expect(text).toContain("Do not pull a pull request");
-    expect(text).toContain("Do not add a twelfth");
-    expect(text).toContain("### GitHub workflows stay locked");
-    expect(text).toContain("second yes or ok");
+    expect(text).toContain("Add a workflow only when no existing one fits");
+    expect(text).toContain("### GitHub workflows");
+    expect(text).toContain("no second yes is asked");
     const state = fs.readFileSync(path.join(ROOT, "FRIDAY_STATE.md"), "utf8");
-    expect(state).toContain("GitHub workflows stay locked");
-    expect(state).toContain("second yes or ok");
+    expect(state).toContain("GitHub workflows may be changed with care");
+    expect(state).toContain("no second yes");
+    expect(state).not.toContain("GitHub workflows stay locked");
     expect(text).toContain("## Direction");
     expect(text).toContain("only `main`");
     expect(text.match(/Never commit, push, or land work on `main`/g)?.length).toBe(1);
